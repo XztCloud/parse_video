@@ -1,0 +1,18 @@
+# 忽略 Python 字节码缓存
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# 忽略本地虚拟环境 (如果你的虚拟环境在项目内)
+.venv/
+venv/
+env/
+
+# 忽略 IDE 配置
+.vscode/
+.idea/
+.next
+
+# 依赖库
+node_modules/
