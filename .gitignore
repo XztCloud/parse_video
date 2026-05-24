@@ -8,6 +8,7 @@ __pycache__/
 .venv/
 venv/
 env/
+.env
 
 # 忽略 IDE 配置
 .vscode/
@@ -16,3 +17,18 @@ env/
 
 # 依赖库
 node_modules/
+.next/
+
+
+uploads/
+*.mp4
+*.mp3
+*.wav
+*.avi
+*.mov
+
+# 忽略日志
+uvicorn.log
+celery.log
+frontend.log
+*.log

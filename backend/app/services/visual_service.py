@@ -2,6 +2,10 @@ import base64
 import os
 from pathlib import Path
 from typing import Optional
+
+from app.services.video_processor import SceneInfo
+
+
 from ..config import settings
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -49,8 +53,8 @@ class VideoFrameSummarizer:
     """
     视频帧画面总结器。
 
-    每次调用 summarize_frames() 传入四帧图像，LLM 会：
-      1. 观察当前四帧的画面内容
+    每次调用 summarize_frames() 传入帧图像，LLM 会：
+      1. 观察当前帧的画面内容
       2. 参考之前已总结的帧画面描述（如有）
       3. 输出一段连贯的、与上下文衔接的画面总结
 
@@ -64,13 +68,7 @@ class VideoFrameSummarizer:
     # 系统提示词
     SYSTEM_PROMPT = (
         "你是一个专业的视频画面描述助手。你的任务是观察给定的视频帧图像，"
-        "并用简洁、准确、连贯的语言描述画面中发生的事情。\n\n"
-        "规则：\n"
-        "1. 描述要涵盖场景、人物动作、物体变化等关键信息。\n"
-        "2. 如果存在「之前的画面总结」，你必须参考它，使新的描述与之前的叙述自然衔接，"
-        "   避免重复已有信息，重点描述新出现或发生变化的内容。\n"
-        "3. 如果画面之间有明显的动作连续性，请体现出来。\n"
-        "4. 输出一段完整的中文描述，不要使用列表或分点格式。"
+        "并用简洁、准确、连贯的语言描述画面信息。如果存在「之前的画面总结」，可以参考它，使新的描述与之前的叙述自然衔接。"
     )
 
     def __init__(
@@ -101,6 +99,7 @@ class VideoFrameSummarizer:
         if base_url:
             llm_kwargs["base_url"] = base_url
 
+        print(f'llm_kwargs: {llm_kwargs}')
         self.llm = ChatOpenAI(**llm_kwargs)
         # 保存所有历史总结，用于上下文串联
         self.summary_history: list[str] = []
@@ -111,13 +110,13 @@ class VideoFrameSummarizer:
 
     def summarize_frames(self, frame_paths: list[str]) -> str:
         """
-        对四帧视频帧进行画面总结，自动关联之前的总结历史。
+        对视频帧进行画面总结，自动关联之前的总结历史。
 
         Args:
-            frame_paths: 四帧图片的文件路径列表，按时间顺序排列。
+            frame_paths: 帧图片的文件路径列表，按时间顺序排列。
 
         Returns:
-            当前四帧的画面总结文本。
+            当前帧的画面总结文本。
         """
         # if len(frame_paths) != 4:
         #     raise ValueError(f"需要恰好 4 帧图像，当前传入了 {len(frame_paths)} 帧。")
@@ -167,7 +166,7 @@ class VideoFrameSummarizer:
         else:
             user_parts.append({
                 "type": "text",
-                "text": "请观察以下四帧视频图像，描述画面内容：",
+                "text": "请观察以下帧视频图像，描述画面内容：",
             })
 
         # 依次添加四帧图像
@@ -186,39 +185,27 @@ class VideoFrameSummarizer:
 
 class VisualService:
     @staticmethod
-    async def analyze_frames(frame_paths: list[str], fps: float = 1.0) -> list[dict]:
+    async def analyze_frames(scene_infos: list[SceneInfo], fps: float = 1.0) -> list[dict]:
 
         # ===== 运行 =====
         summarizer = VideoFrameSummarizer(
-            model_name="doubao-seed-2.0-pro",
-            base_url="https://ark.cn-beijing.volces.com/api/coding/v3",
-            api_key="ebd2645e-7e6a-4235-bdf0-7ab08befc4b1",
+            model_name=settings.LLM_NAME,
+            base_url=settings.LLM_BASE_URL,
+            api_key=settings.LLM_API_KEY,
         )
         print('1')
         segments = []
-        batch_size = 4
-        for i in range(0, len(frame_paths), batch_size):
-            batch = frame_paths[i:i + batch_size]
-            messages = [{"role": "user", "content": [{"text": "请分析以下视频帧，描述镜头画面内容，包括景别、画面主体、动作、场景环境。用简洁一句话描述。"}]}]
+
+        for scene_info in scene_infos:
+            batch = scene_info.image_path_list
+            # TODO：节省token可以将多张图片拼接成一张
             try:
                 summary_item = summarizer.summarize_frames(batch)
             except Exception as e:
                 print(f'error is {e}')
                 return None
-            
             description = summary_item
 
-            segments.append({"start_time": i * 1000 / fps, "end_time": min(i + batch_size, len(frame_paths)) * 1000 / fps, "shot_description": description})
-
-
-            # for frame_path in batch:
-            #     with open(frame_path, "rb") as f:
-            #         img_b64 = base64.b64encode(f.read()).decode("utf-8")
-            #     messages[0]["content"].append({"image": f"data:image/jpeg;base64,{img_b64}"})
-            # response = MultiModalConversation.call(model="qwen-vl-plus", messages=messages)
-            # description = ""
-            # if response.status_code == 200:
-            #     description = response.output.choices[0].message.content[0]["text"]
-            # segments.append({"start_time": i / fps, "end_time": min(i + batch_size, len(frame_paths)) / fps, "shot_description": description})
-        print(f'visual service:segments')
+            segments.append({"start_time": scene_info.start.get_seconds() * 1000, "end_time": scene_info.end.get_seconds() * 1000, "shot_description": description})
         return segments
+    

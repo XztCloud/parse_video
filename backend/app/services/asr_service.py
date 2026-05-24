@@ -147,8 +147,8 @@ class ASRService:
     def transcribe(audio_path: str) -> list[dict] | None:
         # api_key = 'fa794b4b-d446-4e61-82d7-1752eaaf875f'
 
-        appid = "6588537554"
-        token = "J-fY9rSthVMfrdS7cCLShmKLv_RwwLk2"
+        appid = settings.BYTEDANCE_APP_ID
+        token = settings.BYTEDANCE_TOKEN
         print(f'appid: {appid}, token: {token}')
 
         ret = submit_task(audio_path, appid, token)

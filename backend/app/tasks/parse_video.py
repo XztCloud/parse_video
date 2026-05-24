@@ -7,6 +7,7 @@ from app.services.video_processor import VideoProcessor
 from app.services.asr_service import ASRService
 from app.services.visual_service import VisualService
 from app.services.script_generator import ScriptGenerator
+from ..config import settings
 
 @celery_app.task(bind=True)
 def parse_video_task(self, video_id: int):
@@ -23,11 +24,16 @@ def parse_video_task(self, video_id: int):
         audio_path = VideoProcessor.extract_audio(video.file_path)
         video.progress = 20
         db.commit()
-        frame_dir = os.path.join(os.path.dirname(video.file_path), f"frames_{video.id}")
-        print(f'frame_dir: {frame_dir}')
-        frames = VideoProcessor.extract_frames(video.file_path, frame_dir, fps=1.0)
+
+        # 新增 Scene Detect
+        scene_info_list = VideoProcessor.split_video_into_scenes(video_path=video.file_path, output_dir=settings.UPLOAD_DIR + f'/{video.id}')
+        if len(scene_info_list) == 0:
+            video.status = VideoStatus.FAILED
+            video.error_message = 'split_video_into_scenes failed.'
+            db.commit()
+            raise
+
         video.progress = 30
-        print(f'frames len is {len(frames)}')
         db.commit()
         trans_ret = ASRService.transcribe(audio_path)
         if trans_ret is None:
@@ -38,10 +44,10 @@ def parse_video_task(self, video_id: int):
         asr_segments, all_text= trans_ret
 
         video.progress = 60
-        print(f'segments: {asr_segments}')
+        print(f'asr_segments: {asr_segments}')
         db.commit()
         print('0')
-        visual_segments = asyncio.run(VisualService.analyze_frames(frames, fps=1.0))
+        visual_segments = asyncio.run(VisualService.analyze_frames(scene_info_list, fps=1.0))
         if visual_segments is None:
             video.status = VideoStatus.FAILED
             video.error_message = str(e)
@@ -51,15 +57,23 @@ def parse_video_task(self, video_id: int):
         print(f'visual_segments: {visual_segments}')
         video.progress = 80
         db.commit()
-        script_result = asyncio.run(ScriptGenerator.generate_script(asr_segments, visual_segments))
 
+        script_result = asyncio.run(ScriptGenerator.llm_generate_script(asr_segments, visual_segments))
+        print(f'script_result: {script_result}')
+
+        parse_result = asyncio.run(ScriptGenerator.summary_script(script_result=script_result, output_dir=settings.UPLOAD_DIR + f'/{video.id}'))
+        print(f'parse_result: {parse_result}')
         video.progress = 95
         db.commit()
-        script = Script(video_id=video.id, content=script_result, raw_asr_text=json.dumps(asr_segments, ensure_ascii=False), raw_visual_text=json.dumps(visual_segments, ensure_ascii=False))
+
+        for idx, ret in enumerate(parse_result):
+            print(f'ret[{idx}] is {ret}')
+
+        script = Script(video_id=video.id, content=script_result, raw_asr_text=json.dumps(asr_segments, ensure_ascii=False), 
+                        raw_visual_text=json.dumps(visual_segments, ensure_ascii=False), parse_pointer=parse_result[0], 
+                        parse_script=parse_result[1], parse_file_path=parse_result[2])
         db.add(script)
         db.flush()
-
-       
 
         for seg in script_result:
             print(f'seg: {seg}, seg type: {type(seg)}')

@@ -7,8 +7,13 @@ celery==5.3.6
 redis==5.0.1
 python-multipart==0.0.6
 httpx==0.25.2
-pydantic==2.5.2
+pydantic>=2.7.0,<3.0
 pydantic-settings==2.1.0
 python-dotenv==1.0.0
 dashscope==1.14.1
 yt-dlp==2023.12.30
+langchain_openai>=0.1.0
+langchain_core>=0.2.0
+scenedetect==0.7
+pandas==3.0.3
+tabulate==0.10.0

@@ -13,6 +13,9 @@ class Script(Base):
     __tablename__ = "scripts"
     id = Column(Integer, primary_key=True, index=True)
     video_id = Column(Integer, ForeignKey("videos.id"), unique=True)
+    parse_pointer = Column(Text, nullable=True)
+    parse_script = Column(JSON, nullable=True)
+    parse_file_path = Column(Text, nullable=True)
     content = Column(JSON, nullable=True)
     raw_asr_text = Column(Text, nullable=True)
     raw_visual_text = Column(Text, nullable=True)

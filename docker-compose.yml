@@ -10,40 +10,12 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
-      - "5432:5432"
+      - "5433:5432"
 
   redis:
     image: redis:7-alpine
     ports:
-      - "6379:6379"
-
-  backend:
-    build: ./backend
-    ports:
-      - "8000:8000"
-    environment:
-      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/parse_video
-      REDIS_URL: redis://redis:6379/0
-      DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY}
-    depends_on:
-      - postgres
-      - redis
-    volumes:
-      - uploads_data:/app/uploads
-
-  celery_worker:
-    build: ./backend
-    command: celery -A celery_app.celery_app worker --loglevel=info
-    environment:
-      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/parse_video
-      REDIS_URL: redis://redis:6379/0
-      DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY}
-    depends_on:
-      - postgres
-      - redis
-      - backend
-    volumes:
-      - uploads_data:/app/uploads
+      - "6380:6379"
 
 volumes:
   postgres_data:
