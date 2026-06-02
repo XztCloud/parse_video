@@ -58,7 +58,7 @@ def parse_video_task(self, video_id: int):
         video.progress = 80
         db.commit()
 
-        script_result = asyncio.run(ScriptGenerator.llm_generate_script(asr_segments, visual_segments))
+        script_result = asyncio.run(ScriptGenerator.generate_script(asr_segments, visual_segments))
         print(f'script_result: {script_result}')
 
         parse_result = asyncio.run(ScriptGenerator.summary_script(script_result=script_result, output_dir=settings.UPLOAD_DIR + f'/{video.id}'))
@@ -71,7 +71,7 @@ def parse_video_task(self, video_id: int):
 
         script = Script(video_id=video.id, content=script_result, raw_asr_text=json.dumps(asr_segments, ensure_ascii=False), 
                         raw_visual_text=json.dumps(visual_segments, ensure_ascii=False), parse_pointer=parse_result[0], 
-                        parse_script=parse_result[1], parse_file_path=parse_result[2])
+                        parse_script=parse_result[2], parse_file_path=parse_result[3])
         db.add(script)
         db.flush()
 

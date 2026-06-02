@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+import re
 
 import pandas as pd
 from ..config import settings
@@ -7,6 +8,18 @@ from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
 
 RETRY_MAX=3
+
+def convert_markdown_title(text, title="剧情脚本"):
+    """统计字符串中第一次出现的连续 # 个数"""
+    match = re.search(r'#+', text)
+
+    level = len(match.group()) if match else 0
+    
+    if not 1 <= level <= 6:
+        return ''
+    
+    hashes = '#' * level
+    return f"{hashes} {title}"
 
 def split_by_time_window(
     items: list[dict],
@@ -117,14 +130,32 @@ def convert_markdown(ori_data: json) -> str:
         print("❌ 错误：在 JSON 中未找到任何 List (数组) 结构！")
         markdown_text = ori_data
     else:
+        reset_title_list = []
         for index, item in enumerate(target_list):
             print(f'Item {index}: {item}')
             print(f'Type of Item {index}: {type(item)}')
             dialogue = item.get('dialogue', [])
-            item['dialogue'] = "<br>".join(f"{item['speaker']}:{item['text']}" for item in dialogue)
+            item['dialogue'] = "  ".join(f"{item['speaker']}:{item['text']}" for item in dialogue)
             print(f'Processed dialogue for Item {index}: {item["dialogue"]}, type: {type(item["dialogue"])}')
-
-        df = pd.DataFrame(target_list)
+            reset_item = {}
+            if item.get('start_time') is not None:
+                item['start_time'] = round(item['start_time'] / 1000, 1)
+                reset_item['开始'] = item['start_time']
+            if item.get('end_time') is not None:
+                item['end_time'] = round(item['end_time'] / 1000, 1)
+                reset_item['结束'] = item['end_time']
+            if item.get('plot_tag') is not None:
+                reset_item['段落主题'] = item['plot_tag']
+            if item.get('shot_description') is not None:
+                reset_item['镜头描述'] = item['shot_description']
+            if item.get('dialogue') is not None:
+                reset_item['对话'] = item['dialogue']
+            if reset_item:
+                reset_title_list.append(reset_item)
+                
+        
+        reset_title_list = reset_title_list if reset_title_list else target_list
+        df = pd.DataFrame(reset_title_list)
         # index=False 表示不把行索引（0, 1, 2...）写进表格
         markdown_table = df.to_markdown(index=False)
         return markdown_table
@@ -133,7 +164,18 @@ def convert_markdown(ori_data: json) -> str:
 class ScriptGenerator:
     @staticmethod
     async def generate_script(asr_segments: list[dict], visual_segments: list[dict]) -> list:
-        pass
+        asr_segments = sorted(asr_segments, key=lambda x: x['start_time'])
+        asr_cnt = 0
+        for visual in visual_segments:
+            visual['start_time'] = float(visual['start_time'])
+            visual['end_time'] = float(visual['end_time'])
+            visual['dialogue'] = []
+            while asr_cnt < len(asr_segments) and asr_segments[asr_cnt]['start_time'] < visual['end_time']:
+                visual['dialogue'].append({'speaker':asr_segments[asr_cnt]['speaker'], 'text': asr_segments[asr_cnt]['text']})
+                asr_cnt += 1
+        print(f'visual_segments: {visual_segments}')
+        return visual_segments
+
 
     @staticmethod
     async def llm_generate_script(asr_segments: list[dict], visual_segments: list[dict]) -> list:
@@ -269,7 +311,36 @@ class ScriptGenerator:
         result.append(content)
         messages.append(content)
 
-        summary_quary = '将script列表中相邻且关联较大的元素进行合并, 并增加plot_tag字段表示合并后段落的主题。按照json格式输出'
+        json_example = """
+[{
+    "start_time": 0.0,
+    "end_time": 13070.0,
+    "plot_tag": "片段1的主题",
+    "shot_description": "片段1的描述",
+    "dialogue": [
+        {"speaker": "2", "text": "别急，我找个人问问。"},
+        {"speaker": "3", "text": "好的"}
+    ],
+    "segment_type": "mixed"
+},
+{
+    "start_time": 13070.0,
+    "end_time": 20320.0,
+    "plot_tag": "片段2的主题",
+    "shot_description": "片段2的描述",
+    "dialogue": [
+        {"speaker": "2", "text": "哦。"},
+        {"speaker": "2", "text": "随便看，我也不知道吃什么。"},
+        {"speaker": "3", "text": "又是老问题，中午吃啥？"}
+    ],
+    "segment_type": "mixed"
+}]
+"""
+        summary_quary = f"""
+将script列表中相邻且关联较大的元素进行合并，合并后字段名保持不变，并对合并后文本进行总结简化，去掉不必要的描述；并增加plot_tag字段表示合并后段落的主题。
+按照json格式输出，输出格式样例：
+{json_example}
+"""
         messages.append(summary_quary)
 
         summary_content = {}
@@ -295,14 +366,19 @@ class ScriptGenerator:
             print('retry count reached RETRY_MAX! failed.')
             summary_content = {}
         print(f'summary_content: {summary_content},  type is {type(summary_content)}')
+        result.append(summary_content)
         markdown_data = convert_markdown(summary_content)
         result.append(markdown_data)
+        
 
         file_path = folder_path / 'parse_video.md'
+        
+        table_title = convert_markdown_title(result[0])
+
         with open(file_path, 'w', encoding='utf-8') as f:
             f.write(result[0])
-            f.write("\n\n")
-            f.write(result[1])
+            f.write(f"\n\n{table_title}\n\n")
+            f.write(result[2])
         result.append(str(file_path.absolute()))
 
         return result

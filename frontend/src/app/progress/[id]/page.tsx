@@ -39,9 +39,9 @@ export default function ProgressPage() {
     if (!status) return 0;
     const p = status.progress;
     if (p >= 100) return 5;
-    if (p > 80) return 4;
-    if (p > 60) return 3;
-    if (p > 20) return 2;
+    if (p >= 80) return 4;
+    if (p >= 60) return 3;
+    if (p >= 20) return 2;
     if (p > 0) return 1;
     return 0;
   };

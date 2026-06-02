@@ -24,6 +24,8 @@ export interface VideoListItem {
   id: number;
   filename: string;
   status: string;
+  clone_status: string;
+  clone_progress: number;
   progress: number;
   error_message?: string;
 }

@@ -39,6 +39,7 @@ async def upload_video(file: UploadFile = File(...)):
 async def parse_douyin(request: DouyinRequest):
     try:
         file_path, title = DouyinParser.download_video(request.url)
+        print(f'file_path:{file_path}, title:{title}')
         db = SessionLocal()
         try:
             video = Video(
@@ -70,6 +71,8 @@ async def list_videos(skip: int = 0, limit: int = 20):
                 "filename": v.title,
                 "status": v.status.value,
                 "progress": v.progress,
+                "clone_status": v.clone_status.value,
+                "clone_progress": v.clone_progress,
                 "error_message": v.error_message
             }
             for v in videos

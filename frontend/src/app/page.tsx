@@ -40,8 +40,21 @@ export default function Home() {
     const map: Record<string, string> = {
       pending: "等待中",
       processing: "解析中",
-      done: "已完成",
+      done: "解析完成",
       failed: "失败",
+      cloning: "复刻中",
+      clone: "复刻完成",
+    };
+    return map[s] || s;
+  };
+
+  const cloneStatusLabel = (s: string) => {
+    const map: Record<string, string> = {
+      pending: "等待中",
+      cloning: "复刻中",
+      done: "解析完成",
+      CLONE_FAILED: "复刻失败",
+      clone_done: "复刻完成",
     };
     return map[s] || s;
   };
@@ -52,6 +65,8 @@ export default function Home() {
       processing: "bg-yellow-100 text-yellow-700",
       done: "bg-green-100 text-green-700",
       failed: "bg-red-100 text-red-700",
+      cloning: "bg-yellow-100 text-yellow-700",
+      clone: "bg-green-100 text-green-700",
     };
     return map[s] || "bg-gray-100 text-gray-600";
   };
@@ -122,8 +137,8 @@ export default function Home() {
                 <thead>
                   <tr className="border-b text-left text-sm text-gray-500">
                     <th className="pb-3 font-medium">视频名称</th>
-                    <th className="pb-3 font-medium w-24">状态</th>
-                    <th className="pb-3 font-medium w-24">操作</th>
+                    <th className="pb-3 font-medium w-48">状态</th>
+                    <th className="pb-3 font-medium w-48">操作</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -131,9 +146,16 @@ export default function Home() {
                     <tr key={video.id} className="border-b last:border-b-0">
                       <td className="py-3 text-sm text-gray-900">{video.filename}</td>
                       <td className="py-3">
-                        <span className={`px-2 py-1 rounded text-xs font-medium ${statusColor(video.status)}`}>
-                          {statusLabel(video.status)}
-                        </span>
+                        <div className="inline-flex items-center gap-2">
+                          <span className={`px-2 py-1 rounded text-xs font-medium ${statusColor(video.status)}`}>
+                            {statusLabel(video.status)}
+                          </span>
+                          {video.status === 'done' && video.clone_status != 'pending' &&(
+                            <span className={`px-2 py-1 rounded text-xs font-medium ${statusColor(video.status)}`}>
+                              {cloneStatusLabel(video.clone_status)}
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td className="py-3">
                         <button
@@ -147,6 +169,34 @@ export default function Home() {
                           className="text-sm text-blue-500 hover:text-blue-600"
                         >
                           {video.status === "done" ? "查看脚本" : "查看进度"}
+                        </button>
+                        
+                        {video.status === "done" && (
+                          <button
+                            onClick={() => {
+                              if (video.status === "done") {
+                                router.push(`/script/${video.id}`);
+                              } else {
+                                router.push(`/progress/${video.id}`);
+                              }
+                            }}
+                              className="px-3 text-sm text-blue-500 hover:text-blue-600"
+                          >
+                            {video.clone_status === "clone_done" ? "查看复刻" : video.clone_status === "pending" ? "开始复刻" : "查看进度"}
+                          </button>
+                        )}
+                        <button
+                          onClick={() => {
+                            router.push(`/cloneProgress/${video.id}`);
+                          }}
+                          className="px-3 text-sm text-blue-500 hover:text-blue-600"
+                        >
+                          {/* <button style={{ display: 'flex', alignItems: 'center', gap: '8px' }}> */}
+                            {/* 调整大小和阴影 */}
+                            {/* <span style={{ fontSize: '18px', filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.1))' }}> */}
+                              🗑️
+                            {/* </span> */}
+                          {/* </button> */}
                         </button>
                       </td>
                     </tr>

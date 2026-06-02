@@ -14,6 +14,12 @@ class VideoStatus(enum.Enum):
     DONE = "done"
     FAILED = "failed"
 
+class CloneStatus(enum.Enum):
+    PENDING = "pending"
+    CLONING = "cloning"
+    CLONE_DONE = "clone_done"
+    CLONE_FAILED = "clone_failed"
+
 class Video(Base):
     __tablename__ = "videos"
     id = Column(Integer, primary_key=True, index=True)
@@ -24,6 +30,8 @@ class Video(Base):
     duration = Column(Float, nullable=True)
     status = Column(Enum(VideoStatus), default=VideoStatus.PENDING)
     progress = Column(Integer, default=0)
+    clone_status = Column(Enum(CloneStatus), default=CloneStatus.PENDING)
+    clone_progress = Column(Integer, default=0)
     error_message = Column(String(1024), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
-    script = relationship("Script", back_populates="video", uselist=False)
+    script = relationship("Script", back_populates="video", uselist=False, cascade="all, delete-orphan")
