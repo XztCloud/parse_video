@@ -170,8 +170,13 @@ class ScriptGenerator:
             visual['start_time'] = float(visual['start_time'])
             visual['end_time'] = float(visual['end_time'])
             visual['dialogue'] = []
-            while asr_cnt < len(asr_segments) and asr_segments[asr_cnt]['start_time'] < visual['end_time']:
-                visual['dialogue'].append({'speaker':asr_segments[asr_cnt]['speaker'], 'text': asr_segments[asr_cnt]['text']})
+            while asr_cnt < len(asr_segments) and ((asr_segments[asr_cnt]['start_time'] + asr_segments[asr_cnt]['end_time']) / 2) < visual['end_time']:
+                visual['dialogue'].append({
+                    'start_time': asr_segments[asr_cnt]['start_time'], 
+                    'end_time': asr_segments[asr_cnt]['end_time'],
+                    'speaker':asr_segments[asr_cnt]['speaker'], 
+                    'text': asr_segments[asr_cnt]['text']
+                })
                 asr_cnt += 1
         print(f'visual_segments: {visual_segments}')
         return visual_segments

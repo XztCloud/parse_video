@@ -17,6 +17,8 @@ export interface VideoStatusResponse {
   filename: string;
   status: string;
   progress: number;
+  clone_status: string;
+  clone_progress: number;
   error_message?: string;
 }
 
@@ -51,6 +53,13 @@ export interface ScriptResponse {
   segments: ScriptSegment[];
 }
 
+export interface CloneResponse {
+  id: number;
+  theme: string;
+  status: string;
+  progress: number;
+}
+
 export const uploadVideo = async (file: File): Promise<VideoUploadResponse> => {
   const formData = new FormData();
   formData.append("file", file);
@@ -82,5 +91,10 @@ export const getScript = async (videoId: number): Promise<ScriptResponse> => {
 
 export const exportScript = async (videoId: number): Promise<Blob> => {
   const response = await api.get(`/scripts/${videoId}/export`, { responseType: "blob" });
+  return response.data;
+};
+
+export const cloneVideo = async (videoId: number, theme: string): Promise<CloneResponse> => {
+  const response = await api.post<CloneResponse>("/clone/video", {videoId, theme});
   return response.data;
 };

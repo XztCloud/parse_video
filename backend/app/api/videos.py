@@ -87,6 +87,13 @@ async def get_video_status(video_id: int):
         video = db.query(Video).filter(Video.id == video_id).first()
         if not video:
             raise HTTPException(status_code=404, detail="视频不存在")
-        return {"id": video.id, "filename": video.title, "status": video.status.value, "progress": video.progress, "error_message": video.error_message}
+        return {
+            "id": video.id, 
+            "filename": video.title, 
+            "status": video.status.value, 
+            "progress": video.progress, 
+            "clone_status": video.clone_status.value,
+            "clone_progress": video.clone_progress,
+            "error_message": video.error_message}
     finally:
         db.close()

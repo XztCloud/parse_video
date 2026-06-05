@@ -1,10 +1,11 @@
 from pathlib import Path
-import shutil
 import subprocess
 import os
 from typing import List, NamedTuple, Union
 from scenedetect import AdaptiveDetector, ContentDetector, FrameTimecode, TimecodeLike, open_video, SceneManager, save_images, split_video_ffmpeg
 from scenedetect import split_video_ffmpeg
+
+from app.util import make_dir
 
 def has_mp4_files(folder_path: str|Path):
     # 使用 rglob 可以连同【子文件夹】一起查找；如果只想找【当前目录】，把 rglob 改为 glob
@@ -23,19 +24,6 @@ def get_sorted_mp4_files(folder_path: Union[str, Path]) -> List[Path]:
         key=lambda p: p.stat().st_mtime, 
         reverse=True
     )
-
-
-def make_dir(dir_path: str|Path):
-    target_dir = Path(dir_path)
-    
-    if target_dir.exists():
-        # 如果存在，使用 rmtree 递归删除该文件夹及其内部的所有子文件和子文件夹
-        shutil.rmtree(target_dir)
-        
-    # 重新创建这个文件夹
-    # parents=True: 如果上级目录不存在，会自动连同上级目录一起创建
-    # exist_ok=True: 防御性参数，防止高并发下创建瞬间冲突报错
-    target_dir.mkdir(parents=True, exist_ok=True)
 
 
 # 定义一个你专属的“镜头信息”数据结构

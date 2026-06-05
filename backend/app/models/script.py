@@ -24,7 +24,7 @@ class Script(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     video = relationship("Video", back_populates="script")
     segments = relationship("ScriptSegment", back_populates="script", cascade="all, delete-orphan")
-    clone_script = relationship("CloneScript", back_populates="script", uselist=False, cascade="all, delete-orphan")
+    clone_script = relationship("CloneScript", back_populates="script", cascade="all, delete-orphan")
 
 class ScriptSegment(Base):
     __tablename__ = "script_segments"
@@ -40,8 +40,9 @@ class ScriptSegment(Base):
 class CloneScript(Base):
     __tablename__ = "clone_scripts"
     id = Column(Integer, primary_key=True, index=True)
-    script_id = Column(Integer, ForeignKey("scripts.id"), unique=True)
-    clone_parse_pointer = Column(Text, nullable=True, comment="复刻解析重点信息")
+    script_id = Column(Integer, ForeignKey("scripts.id"))
+    clone_theme = Column(String(255), nullable=True, comment="复刻视频标题")
+    clone_parse_pointer = Column(JSON, nullable=True, comment="复刻解析重点信息")
     clone_parse_script = Column(JSON, nullable=True, comment="复刻解析剧本脚本")
     clone_parse_file_path = Column(Text, nullable=True, comment="复刻解析结果文件路径,markdown格式")
     clone_content = Column(JSON, nullable=True, comment="复刻完整剧本内容，包含分镜、台词等信息")

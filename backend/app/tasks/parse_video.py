@@ -1,4 +1,5 @@
 import os, json, asyncio
+from app.services.clone import begin_clone
 from celery_app import celery_app
 from app.database import SessionLocal
 from app.models.video import Video, VideoStatus
@@ -16,7 +17,7 @@ def parse_video_task(self, video_id: int):
         print('start celery task: parse_video_task')
         video = db.query(Video).filter(Video.id == video_id).first()
         if not video:
-            return
+            raise
         video.status = VideoStatus.PROCESSING
         video.progress = 0
         db.commit()
@@ -71,7 +72,7 @@ def parse_video_task(self, video_id: int):
 
         script = Script(video_id=video.id, content=script_result, raw_asr_text=json.dumps(asr_segments, ensure_ascii=False), 
                         raw_visual_text=json.dumps(visual_segments, ensure_ascii=False), parse_pointer=parse_result[0], 
-                        parse_script=parse_result[2], parse_file_path=parse_result[3])
+                        parse_script=parse_result[1], parse_file_path=parse_result[3])
         db.add(script)
         db.flush()
 
@@ -91,3 +92,9 @@ def parse_video_task(self, video_id: int):
         raise
     finally:
         db.close()
+
+
+@celery_app.task(bind=True)
+def clone_video_task(self, video_id: int, theme: str):
+
+    asyncio.run(begin_clone(video_id, theme))

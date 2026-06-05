@@ -41,9 +41,7 @@ export default function Home() {
       pending: "等待中",
       processing: "解析中",
       done: "解析完成",
-      failed: "失败",
-      cloning: "复刻中",
-      clone: "复刻完成",
+      failed: "失败"
     };
     return map[s] || s;
   };
@@ -52,9 +50,8 @@ export default function Home() {
     const map: Record<string, string> = {
       pending: "等待中",
       cloning: "复刻中",
-      done: "解析完成",
-      CLONE_FAILED: "复刻失败",
       clone_done: "复刻完成",
+      clone_failed: "复刻失败"
     };
     return map[s] || s;
   };
@@ -64,11 +61,29 @@ export default function Home() {
       pending: "bg-gray-100 text-gray-600",
       processing: "bg-yellow-100 text-yellow-700",
       done: "bg-green-100 text-green-700",
-      failed: "bg-red-100 text-red-700",
-      cloning: "bg-yellow-100 text-yellow-700",
-      clone: "bg-green-100 text-green-700",
+      failed: "bg-red-100 text-red-700"
     };
     return map[s] || "bg-gray-100 text-gray-600";
+  };
+
+  const cloneStatusColor = (s: string) => {
+    const map: Record<string, string> = {
+      pending: "bg-gray-100 text-gray-600",
+      cloning: "bg-yellow-100 text-yellow-700",
+      clone_done: "bg-green-100 text-green-700",
+      clone_failed: "bg-red-100 text-red-700"
+    };
+    return map[s] || "bg-gray-100 text-gray-600";
+  };
+
+  const cloneButtonText = (s: string) => {
+    const map: Record<string, string> = {
+      pending: "开始复刻",
+      cloning: "查看进度",
+      clone_done: "查看详情",
+      clone_failed: "重新复刻"
+    }
+    return map[s] || "开始复刻"
   };
 
   return (
@@ -151,7 +166,7 @@ export default function Home() {
                             {statusLabel(video.status)}
                           </span>
                           {video.status === 'done' && video.clone_status != 'pending' &&(
-                            <span className={`px-2 py-1 rounded text-xs font-medium ${statusColor(video.status)}`}>
+                            <span className={`px-2 py-1 rounded text-xs font-medium ${cloneStatusColor(video.clone_status)}`}>
                               {cloneStatusLabel(video.clone_status)}
                             </span>
                           )}
@@ -174,15 +189,15 @@ export default function Home() {
                         {video.status === "done" && (
                           <button
                             onClick={() => {
-                              if (video.status === "done") {
-                                router.push(`/script/${video.id}`);
+                              if (video.clone_status === "clone_done" || video.clone_status === "clone_failed" || video.clone_status === "pending") {
+                                router.push(`/clone/${video.id}`);
                               } else {
-                                router.push(`/progress/${video.id}`);
+                                router.push(`/cloneProgress/${video.id}`);
                               }
                             }}
                               className="px-3 text-sm text-blue-500 hover:text-blue-600"
                           >
-                            {video.clone_status === "clone_done" ? "查看复刻" : video.clone_status === "pending" ? "开始复刻" : "查看进度"}
+                            {cloneButtonText(video.clone_status)}
                           </button>
                         )}
                         <button
@@ -191,12 +206,7 @@ export default function Home() {
                           }}
                           className="px-3 text-sm text-blue-500 hover:text-blue-600"
                         >
-                          {/* <button style={{ display: 'flex', alignItems: 'center', gap: '8px' }}> */}
-                            {/* 调整大小和阴影 */}
-                            {/* <span style={{ fontSize: '18px', filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.1))' }}> */}
-                              🗑️
-                            {/* </span> */}
-                          {/* </button> */}
+                          🗑️
                         </button>
                       </td>
                     </tr>
