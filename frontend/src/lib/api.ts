@@ -1,8 +1,8 @@
 import axios from "axios";
 
-const API_PREFIX = process.env.PUBLIC_API_PREFIX || "/api/v1";
+const API_PREFIX = "/api/v1";
 const api = axios.create({
-  baseURL: process.env.PUBLIC_API_URL || "http://localhost:8000",
+  baseURL: "",
   timeout: 30000,
 });
 

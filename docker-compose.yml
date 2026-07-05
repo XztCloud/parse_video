@@ -29,13 +29,13 @@ services:
       - REDIS_URL=redis://redis:6379/0
 
   frontend:
-    build: ./frontend
-    user: "root"
+    build: 
+      context: ./frontend
+      dockerfile: Dockerfile
+    env_file:
+      - .env
     ports:
       - "3000:3000"
-    environment:
-      # 🔥 将 Docker 内部后端的服务名和端口注入进去，覆盖 localhost
-      - PUBLIC_API_URL=http://backend:8080
 
   postgres:
     image: postgres:15

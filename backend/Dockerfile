@@ -12,7 +12,7 @@ RUN sed -i 's/URIs: http:\/\/deb.debian.org/URIs: http:\/\/mirrors.aliyun.com/g'
     rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
+RUN pip install --no-cache-dir -r requirements.txt -i https://mirrors.aliyun.com/pypi/simple/
 
 
 COPY . .
