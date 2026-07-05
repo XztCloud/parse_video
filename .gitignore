@@ -32,3 +32,8 @@ uvicorn.log
 celery.log
 frontend.log
 *.log
+LOGS
+
+Parse_Video.egg-info
+
+versions

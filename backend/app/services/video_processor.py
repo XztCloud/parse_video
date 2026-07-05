@@ -77,6 +77,11 @@ class VideoProcessor:
         scene_manager.detect_scenes(video, show_progress=True)
         scene_list = scene_manager.get_scene_list()
         print(f'scene_list: {scene_list}')
+
+        if not scene_list:
+            scene_list = scene_manager.get_scene_list(start_in_scene=True)
+            print(f'scene_list: {scene_list}')
+
         ret = split_video_ffmpeg(video_path, scene_list, show_progress=True, output_dir=output_dir)
         if ret != 0:
             print(f'split_video_ffmpeg failed. ret: {ret}')

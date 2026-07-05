@@ -1,6 +1,42 @@
 version: "3.8"
 
 services:
+  backend:
+    build: ./backend
+    env_file:
+      - ./.env
+    volumes:
+      - ./backend:/app
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/parse_video
+      - REDIS_URL=redis://redis:6379/0
+
+  celery_worker:
+    build: ./backend  # 💡 核心：使用跟上面完全相同的构建上下文和镜像
+    env_file:
+      - .env
+    volumes:
+      - ./backend:/app
+    # 💡 核心：用 command 覆盖 Dockerfile 的默认 CMD，改走 Celery 启动命令
+    # 请根据你实际的 tasks 位置修改 -A 后面的路径，-c 2 限制并发为 2（适合 2 核服务器）
+    command: start-worker
+    depends_on:
+      - redis
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/parse_video
+      - REDIS_URL=redis://redis:6379/0
+
+  frontend:
+    build: ./frontend
+    user: "root"
+    ports:
+      - "3000:3000"
+    environment:
+      # 🔥 将 Docker 内部后端的服务名和端口注入进去，覆盖 localhost
+      - PUBLIC_API_URL=http://backend:8080
+
   postgres:
     image: postgres:15
     environment:

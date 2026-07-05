@@ -6,7 +6,8 @@ from app.config import settings
 from alembic import context
 from app.database import Base
 from app.models.video import Video
-from app.models.script import Script, ScriptSegment, CloneScript, CloneScriptSegment, CloneVideo
+from app.models.script import Script, ScriptSegment, CloneScript, CloneScriptSegment, CloneVideo,CloneVoice,CloneStatus,SegmentType
+from app.models.voice import VoiceInfoCollect
 
 
 # this is the Alembic Config object, which provides

@@ -49,7 +49,7 @@ export default function ScriptTimeline({ segments }: ScriptTimelineProps) {
             )}
             {seg.dialogue.map((item, index) => (
               <p key={index} className="text-gray-700 mb-1">
-                <span className="font-medium text-gray-900">角色{item.speaker}: </span>
+                <span className="font-medium text-gray-900">角色({item.speaker}): </span>
                 {item.text}
               </p>
             ))}

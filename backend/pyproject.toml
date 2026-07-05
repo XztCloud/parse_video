@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "Parse_Video"
+dynamic = ["version"]
+authors = [
+    {name = "Zhitao Xiang"}
+]
+description = "Parse Clone Video"
+readme = "README.md"
+requires-python = ">=3.10"
+
+dependencies = []
+
+
+[project.scripts]
+start-api = "app.main:main"
+start-worker = "app.celery_app:start_celery_worker"
+train-tts = "app.services.predict.predict_voice_duration:train_tts_predict_model"
+
+[tool.setuptools]
+packages = ["app"] 

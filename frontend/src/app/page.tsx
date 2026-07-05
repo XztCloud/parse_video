@@ -66,24 +66,10 @@ export default function Home() {
     return map[s] || "bg-gray-100 text-gray-600";
   };
 
-  const cloneStatusColor = (s: string) => {
-    const map: Record<string, string> = {
-      pending: "bg-gray-100 text-gray-600",
-      cloning: "bg-yellow-100 text-yellow-700",
-      clone_done: "bg-green-100 text-green-700",
-      clone_failed: "bg-red-100 text-red-700"
-    };
-    return map[s] || "bg-gray-100 text-gray-600";
-  };
-
-  const cloneButtonText = (s: string) => {
-    const map: Record<string, string> = {
-      pending: "开始复刻",
-      cloning: "查看进度",
-      clone_done: "查看详情",
-      clone_failed: "重新复刻"
-    }
-    return map[s] || "开始复刻"
+  const routerParams = (title: string) => {
+    const params = new URLSearchParams();
+    params.set('title', title);
+    return params.toString();
   };
 
   return (
@@ -152,7 +138,7 @@ export default function Home() {
                 <thead>
                   <tr className="border-b text-left text-sm text-gray-500">
                     <th className="pb-3 font-medium">视频名称</th>
-                    <th className="pb-3 font-medium w-48">状态</th>
+                    <th className="pb-3 font-medium w-24">状态</th>
                     <th className="pb-3 font-medium w-48">操作</th>
                   </tr>
                 </thead>
@@ -165,11 +151,11 @@ export default function Home() {
                           <span className={`px-2 py-1 rounded text-xs font-medium ${statusColor(video.status)}`}>
                             {statusLabel(video.status)}
                           </span>
-                          {video.status === 'done' && video.clone_status != 'pending' &&(
+                          {/* {video.status === 'done' && video.clone_status != 'pending' &&(
                             <span className={`px-2 py-1 rounded text-xs font-medium ${cloneStatusColor(video.clone_status)}`}>
                               {cloneStatusLabel(video.clone_status)}
                             </span>
-                          )}
+                          )} */}
                         </div>
                       </td>
                       <td className="py-3">
@@ -189,15 +175,19 @@ export default function Home() {
                         {video.status === "done" && (
                           <button
                             onClick={() => {
-                              if (video.clone_status === "clone_done" || video.clone_status === "clone_failed" || video.clone_status === "pending") {
-                                router.push(`/clone/${video.id}`);
-                              } else {
-                                router.push(`/cloneProgress/${video.id}`);
-                              }
+                              const title = routerParams(video.filename);
+                              console.log(`send title:${title}`)
+                              router.push(`/clone/${video.id}?${title}`);
+                              // if (video.clone_status === "clone_done" || video.clone_status === "clone_failed" || video.clone_status === "pending") {
+                              //   router.push(`/clone/${video.id}`);
+                              // } else {
+                              //   router.push(`/cloneProgress/${video.id}`);
+                              // }
                             }}
                               className="px-3 text-sm text-blue-500 hover:text-blue-600"
                           >
-                            {cloneButtonText(video.clone_status)}
+                            复刻
+                            {/* {cloneButtonText(video.clone_status)} */}
                           </button>
                         )}
                         <button

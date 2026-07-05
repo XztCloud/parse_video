@@ -60,7 +60,7 @@ async def parse_douyin(request: DouyinRequest):
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"抖音链接解析失败: {str(e)}")
 
-@router.get("/")
+@router.get("")
 async def list_videos(skip: int = 0, limit: int = 20):
     db = SessionLocal()
     try:
@@ -71,8 +71,6 @@ async def list_videos(skip: int = 0, limit: int = 20):
                 "filename": v.title,
                 "status": v.status.value,
                 "progress": v.progress,
-                "clone_status": v.clone_status.value,
-                "clone_progress": v.clone_progress,
                 "error_message": v.error_message
             }
             for v in videos
@@ -91,9 +89,7 @@ async def get_video_status(video_id: int):
             "id": video.id, 
             "filename": video.title, 
             "status": video.status.value, 
-            "progress": video.progress, 
-            "clone_status": video.clone_status.value,
-            "clone_progress": video.clone_progress,
+            "progress": video.progress,
             "error_message": video.error_message}
     finally:
         db.close()

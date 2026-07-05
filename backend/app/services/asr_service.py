@@ -105,21 +105,6 @@ def query_task(task_id, x_tt_logid, appid, token):
         print(f'Query task failed and the response headers are: {response.headers}')
         exit(1)
     return response
-
-
-# def main():
-#     task_id, x_tt_logid = submit_task()
-#     while True:
-#         query_response = query_task(task_id, x_tt_logid)
-#         code = query_response.headers.get('X-Api-Status-Code', "")
-#         if code == '20000000':  # task finished
-#             print(query_response.json())
-#             print("SUCCESS!")
-#             exit(0)
-#         elif code != '20000001' and code != '20000002':  # task failed
-#             print("FAILED!")
-#             exit(1)
-#         time.sleep(1)
         
 
 def parse_utterances(data):
@@ -145,11 +130,9 @@ def parse_utterances(data):
 class ASRService:
     @staticmethod
     def transcribe(audio_path: str) -> list[dict] | None:
-        # api_key = 'fa794b4b-d446-4e61-82d7-1752eaaf875f'
 
         appid = settings.BYTEDANCE_APP_ID
         token = settings.BYTEDANCE_TOKEN
-        print(f'appid: {appid}, token: {token}')
 
         ret = submit_task(audio_path, appid, token)
         if ret is None:

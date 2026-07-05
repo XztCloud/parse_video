@@ -37,7 +37,7 @@ export default function DouyinInput({ onParseSuccess }: DouyinInputProps) {
           value={url}
           onChange={(e) => setUrl(e.target.value)}
           placeholder="请输入抖音分享链接"
-          className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-blue-500"
+          className="flex-1 px-4 py-2 border border-gray-300 text-gray-800 rounded-lg focus:outline-none focus:border-blue-500"
           onKeyDown={(e) => e.key === "Enter" && handleParse()}
         />
         <button

@@ -1,10 +1,12 @@
-import { cloneVideo } from "@/lib/api";
+"use client";
+
+import { clonePlot, getDefaultCloneRequest } from "@/lib/api";
 import { title } from "process";
 import { useState } from "react";
 
 interface CreateCloneProps {
     videoId: number;
-    onComplete: (theme: string) => void;
+    onComplete: (theme: string, cloneScriptId: number) => void;
 }
 
 export default function CreateClone({videoId, onComplete }: CreateCloneProps) {
@@ -21,9 +23,12 @@ export default function CreateClone({videoId, onComplete }: CreateCloneProps) {
         setError(null)
         try {
             console.log(`videoId: ${videoId}, theme: ${theme.trim()}`)
-            const result = await cloneVideo(videoId, theme.trim());
+            const params = getDefaultCloneRequest(videoId);
+            params.cloneTheme = theme.trim();
+            console.log("params is ", params);
+            const result = await clonePlot(params);
             console.log("result is ", result)
-            onComplete(theme.trim());
+            onComplete(theme.trim(), result.id);
         } catch (err: any) {
             setError(err.response?.data?.detail || "解析失败，请重试");
         } finally {
