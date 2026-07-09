@@ -12,12 +12,13 @@ RUN sed -i 's/URIs: http:\/\/deb.debian.org/URIs: http:\/\/mirrors.aliyun.com/g'
     rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
+
 RUN pip install --no-cache-dir -r requirements.txt -i https://mirrors.aliyun.com/pypi/simple/
 
 
 COPY . .
 
 RUN pip install --upgrade pip
-RUN pip install -e .
+RUN pip install -i https://mirrors.aliyun.com/pypi/simple/ -e .
 
 CMD ["start-api"]
