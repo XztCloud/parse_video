@@ -54,6 +54,10 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int= 60
 
     RUN_ENV: str = "DEV"
+
+    SUPER_ADMINI_EMAIL: str
+    SUPER_ADMINI_PASSWORD: str
+    
     class Config:
         env_file = "../.env"
 

@@ -1,6 +1,16 @@
 version: "3.8"
 
 services:
+  prestart:
+    build: ./backend
+    env_file:
+      - ./.env
+    depends_on:
+      postgres:
+        condition: service_healthy
+        restart: true
+    command: bash prestart.sh
+
   backend:
     build: ./backend
     env_file:
@@ -17,8 +27,11 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+        restart: true
       redis:
         condition: service_started
+      prestart:
+        condition: service_completed_successfully
 
   celery_worker:
     build: ./backend  # 💡 核心：使用跟上面完全相同的构建上下文和镜像
