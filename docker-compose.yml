@@ -62,6 +62,8 @@ services:
     build: 
       context: ./frontend
       dockerfile: Dockerfile
+      args:
+        - API_PROXY_TARGET=http://backend:8000
     env_file:
       - .env
     ports:
