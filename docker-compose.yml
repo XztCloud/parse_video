@@ -9,6 +9,10 @@ services:
       postgres:
         condition: service_healthy
         restart: true
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/parse_video
+      - REDIS_URL=redis://redis:6379/0
+      - RUN_ENV=DEV
     command: bash prestart.sh
 
   backend:

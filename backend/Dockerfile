@@ -17,6 +17,7 @@ RUN pip install --no-cache-dir -r requirements.txt -i https://mirrors.aliyun.com
 
 COPY . .
 
+RUN pip install --upgrade pip
 RUN pip install -e .
 
 CMD ["start-api"]
