@@ -29,3 +29,4 @@ pillow===12.3.0
 asyncpg===0.31.0
 pwdlib[argon2,bcrypt] == 0.3.0
 PyJWT == 2.13.0
+func_timeout===4.3.5
