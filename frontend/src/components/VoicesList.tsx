@@ -2,6 +2,11 @@
 
 import { CloneVoice, exportCloneVoice } from "@/lib/api";
 import React, { useState, useRef } from "react";
+import {
+  PlayIcon,
+  PauseIcon,
+  SpeakerWaveIcon,
+} from "@heroicons/react/24/solid";
 
 interface ScriptVoiceProps {
   voices: CloneVoice[];
@@ -12,151 +17,262 @@ export default function VoiceList({ voices }: ScriptVoiceProps) {
     return <div className="text-gray-500 text-center py-8">暂无音频数据</div>;
   }
 
-  const [isPlaying, setIsPlaying] = useState<boolean>(false);
-  const [loading, setLoading] = useState<boolean>(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  const objectUrlRef = useRef<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
 
-  const handleExportPlot = async (cloneVoiceId: number)=> {
-    try {
-      const blob = await exportCloneVoice(cloneVoiceId);
-      
-      if (blob.type === 'application/json') { // 或者根据你的后端报错特征判断
-        const errorText = await blob.text();
-        const errorJson = JSON.parse(errorText);
-        setError(errorJson.detail || "导出失败");
-        return;
-      }
+  // 已缓存的音频
+  const audioCache = useRef<Map<number, string>>(new Map());
 
-    } catch (error: any) {
-      // 如果后端返回了错误信息，且被包装成了 Blob
-      if (error.response?.data instanceof Blob) {
-        const blobData = error.response.data;
-        
-        // 使用 FileReader 将二进制的错误信息读出来
-        const reader = new FileReader();
-        reader.onload = function () {
-          const errorText = reader.result as string;
-          const errorJson = JSON.parse(errorText);
-          
-          // 这里的 errorJson.detail 就是上一问你拼接的 "导出复刻脚本信息失败: 400..."
-          setError(errorJson.detail || "下载失败"); 
-        };
-        reader.readAsText(blobData);
+  // 当前播放的ObjectURL
+  const currentUrlRef = useRef<string | null>(null);
+
+  // requestAnimationFrame
+  const animationRef = useRef<number | null>(null);
+
+  // 当前播放ID
+  const [playingId, setPlayingId] = useState<number | null>(null);
+
+  // 当前正在加载
+  const [loadingId, setLoadingId] = useState<number | null>(null);
+
+  const [pause, setPause] = useState<boolean>(false);
+
+  // 当前播放时间
+  const [currentTime, setCurrentTime] = useState(0);
+
+  // 总时长
+  const [duration, setDuration] = useState(0);
+
+  const getAudio = () => {
+    if (audioRef.current) return audioRef.current;
+
+    const audio = new Audio();
+
+    audio.preload = "auto";
+
+    audio.ontimeupdate = () => {
+      setCurrentTime(audio.currentTime);
+    };
+
+    audio.onloadedmetadata = () => {
+      setDuration(audio.duration);
+    };
+
+    audio.onended = () => {
+      stopAudio();
+    };
+
+    audio.onerror = () => {
+      stopAudio();
+    };
+
+    audioRef.current = audio;
+
+    return audio;
+  };
+
+  const updateProgress = () => {
+    const audio = audioRef.current;
+
+    if (!audio) return;
+
+    setCurrentTime(audio.currentTime);
+
+    animationRef.current = requestAnimationFrame(updateProgress);
+  };
+
+  const stopAudio = () => {
+    const audio = audioRef.current;
+
+    if (!audio) return;
+
+    audio.pause();
+
+    audio.currentTime = 0;
+
+    if (animationRef.current) {
+      cancelAnimationFrame(animationRef.current);
+    }
+
+    setPlayingId(null);
+
+    setCurrentTime(0);
+
+    setDuration(audio.duration || 0);
+  };
+
+
+  const fetchAndPlayAudio = async (id: number) => {
+    const audio = getAudio();
+
+    // 当前播放 -> 暂停
+    if (playingId === id) {
+      if (!audio) return;
+      if (!pause) {
+        audio.pause();
+
+        // if (animationRef.current) {
+        //   cancelAnimationFrame(animationRef.current);
+        // }
+
+        // setPlayingId(null);
+        setPause(true);
       } else {
-        setError("网络请求失败");
+        audio.play()
+        // if (animationRef.current) {
+        //   cancelAnimationFrame(animationRef.current);
+        // }
+        setPause(false);
       }
+      
+      return;
+    }
+    setPause(false);
+    // 先停止其它
+    stopAudio();
+
+    try {
+      setLoadingId(id);
+
+      let url: string;
+
+      // 已缓存
+      if (audioCache.current.has(id)) {
+        url = audioCache.current.get(id)!;
+      } else {
+        const blob = await exportCloneVoice(id);
+
+        url = URL.createObjectURL(blob);
+
+        audioCache.current.set(id, url);
+      }
+
+      currentUrlRef.current = url;
+
+      audio.src = url;
+
+      await audio.play();
+
+      setPlayingId(id);
+
+      updateProgress();
+    } catch (e) {
+      console.error(e);
+
+      stopAudio();
+    } finally {
+      setLoadingId(null);
     }
   };
 
-  
+  const handleSeek = (value: number) => {
+    const audio = audioRef.current;
 
-  const fetchAndPlayAudio = async (cloneVoiceId: number) => {
-    // 1. 如果已经加载过音频，直接控制播放/暂停
-    console.log("当前播放的语音ID:", cloneVoiceId);
-    if (audioRef.current) {
-      if (isPlaying) {
-        audioRef.current.pause();
-      } else {
-        audioRef.current.play();
-      }
-      setIsPlaying(!isPlaying);
-      return;
-    }
+    if (!audio) return;
 
-    // 2. 第一次点击，从后端获取二进制流
-    setLoading(true);
-    try {
-      const response = await exportCloneVoice(cloneVoiceId)
-      
-      // const blob = await exportCloneVoice(cloneVoiceId);
-      
-      if (response.type === 'application/json') { // 或者根据你的后端报错特征判断
-        const errorText = await response.text();
-        const errorJson = JSON.parse(errorText);
-        setError(errorJson.detail || "导出失败");
-        return;
-      }
+    audio.currentTime = value;
 
+    setCurrentTime(value);
+  };
 
-      // 将响应转化为 Blob (Binary Large Object)
-      // const audioBlob = await response.blob();
+  const formatTime = (time: number) => {
+    if (!time || Number.isNaN(time)) return "00:00";
 
-      // 生成一个临时的本地 URL
-      const audioUrl = URL.createObjectURL(response);
-      objectUrlRef.current = audioUrl; // 留作后续销毁用
+    const minute = Math.floor(time / 60);
 
-      // 创建音频对象并播放
-      const audio = new Audio(audioUrl);
-      audioRef.current = audio;
+    const second = Math.floor(time % 60);
 
-      audio.onended = () => {
-        setIsPlaying(false);
-      };
-
-      await audio.play();
-      setIsPlaying(true);
-    } catch (error) {
-      console.error("音频加载或播放失败:", error);
-    } finally {
-      setLoading(false);
-    }
+    return `${String(minute).padStart(2, "0")}:${String(second).padStart(2, "0")}`;
   };
 
   return (
     <div className="space-y-4">
-      {voices.map((voice) => (
-        <div
-          key={voice.id}
-          className="relative pl-8 pb-6 border-l-2 border-blue-200 last:border-l-0 last:pb-0"
-        >
-          <div className="absolute left-[-9px] top-0 w-4 h-4 rounded-full bg-blue-500 border-2 border-white" />
-          <div className="bg-white rounded-lg shadow-sm border p-4">
-            <span className="text-lg text-gray-800 font-bold">
-              {voice.role_name}
-            </span>
-            <span className="px-2 py-1 bg-gray-100 rounded text-base text-gray-600">
-              {voice.voice_type}
-            </span>
-            <div className="px-2 border">
-              <h3>安全音频播放器 (Blob 模式)</h3>
-              <button onClick={() => fetchAndPlayAudio(voice.id)} disabled={loading}>
-                {loading ? "加载中..." : isPlaying ? "暂停" : "获取并播放"}
-              </button>
+      {voices.map((voice) => {
+        const isCurrent = playingId === voice.id;
+
+        return (
+          <div
+            key={voice.id}
+            className="relative pl-8 pb-6 border-l-2 border-blue-200 last:border-l-0 last:pb-0"
+          >
+            <div className="absolute left-[-9px] top-0 w-4 h-4 rounded-full bg-blue-500 border-2 border-white" />
+
+            <div className="bg-white rounded-xl shadow border p-5">
+              {/* 标题 */}
+              <div className="flex justify-between items-center">
+                <div>
+                  <span className="text-lg font-bold text-gray-800">
+                    {voice.role_name}
+                  </span>
+
+                  <span className="ml-4 px-2 py-1 rounded bg-blue-50 text-blue-600 text-sm">
+                    {voice.voice_type}
+                  </span>
+                </div>
+
+                <div className="text-gray-500 text-sm">{voice.duration}s</div>
+              </div>
+
+              {/* 文本 */}
+
+              <div className="mt-4 text-gray-700 leading-7">{voice.text}</div>
+
+              {/* 播放器 */}
+
+              <div className="mt-5 flex items-center gap-4">
+                {/* 播放按钮 */}
+
+                <button
+                  onClick={() => fetchAndPlayAudio(voice.id)}
+                  disabled={loadingId === voice.id}
+                  className="w-8 h-8 rounded-full bg-blue-500 hover:bg-blue-600 text-white flex items-center justify-center transition disabled:bg-gray-300"
+                >
+                  {loadingId === voice.id ? (
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  ) : isCurrent && !pause ? (
+                    <PauseIcon className="w-4 h-4" />
+                  ) : (
+                    <PlayIcon className="w-4 h-4" />
+                  )}
+                </button>
+
+                {/* 时间轴 */}
+
+                <div className="flex-1">
+                  <div className="flex justify-between text-xs text-gray-500 mb-1">
+                    <span>{isCurrent ? formatTime(currentTime) : "00:00"}</span>
+                    <input
+                    type="range"
+                      min={0}
+                      max={isCurrent ? duration : voice.duration}
+                      step={0.01}
+                      value={isCurrent ? currentTime : 0}
+                      onChange={(e) => handleSeek(Number(e.target.value))}
+                      disabled={!isCurrent}
+                      className="
+                                  mx-4
+                                  w-full
+                                  accent-blue-500
+                                  cursor-pointer
+                              "
+                    />
+                    <span>
+                      {isCurrent
+                        ? formatTime(duration)
+                        : formatTime(voice.duration)}
+                    </span>
+                  </div>
+
+                 
+                </div>
+
+                {/* 喇叭 */}
+
+                {/* <SpeakerWaveIcon className="w-6 h-6 text-gray-400" /> */}
+              </div>
             </div>
           </div>
-
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
-
-// export const SecureAudioPlayer: React.FC<SecureAudioPlayerProps> = ({
-//   audioId,
-// }) => {
-
-
-  
-
-//   // 组件销毁时，释放内存中的 Object URL
-//   React.useEffect(() => {
-//     return () => {
-//       if (objectUrlRef.current) {
-//         URL.revokeObjectURL(objectUrlRef.current);
-//       }
-//     };
-//   }, []);
-
-//   return (
-//     <div
-//       style={{ padding: "20px", border: "1px solid #ccc", borderRadius: "8px" }}
-//     >
-//       <h3>安全音频播放器 (Blob 模式)</h3>
-//       <button onClick={fetchAndPlayAudio} disabled={loading}>
-//         {loading ? "加载中..." : isPlaying ? "暂停" : "获取并播放"}
-//       </button>
-//     </div>
-//   );
-// };

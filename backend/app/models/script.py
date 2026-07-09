@@ -68,7 +68,7 @@ class CloneScript(Base):
     clone_segments = relationship("CloneScriptSegment", back_populates="clone_script", cascade="all, delete-orphan")
     clone_videos = relationship("CloneVideo", back_populates="clone_script", cascade="all, delete-orphan")
     clone_voices = relationship("CloneVoice", back_populates="clone_script", cascade="all, delete-orphan")
-
+    clone_images = relationship("CloneImage", back_populates="clone_script", cascade="all, delete-orphan")
 
 class CloneVoice(Base):
     __tablename__ = "clone_voices"
@@ -90,6 +90,19 @@ class CloneVoice(Base):
         Index('ix_role_md5_type', 'role_name', 'text_md5', 'voice_type'),
     )
 
+
+class CloneImage(Base):
+    __tablename__ = "clone_images"
+    id = Column(Integer, primary_key=True, index=True)
+    script_id = Column(Integer, ForeignKey("clone_scripts.id"))
+    role_name = Column(String(128), nullable=False, index=True)
+    width = Column(Integer, nullable=False)
+    height = Column(Integer, nullable=False)
+    path = Column(String(256), nullable=False)
+    desc = Column(String(128), nullable=True)
+    clone_script = relationship("CloneScript", back_populates="clone_images")
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
 class CloneScriptSegment(Base):
     __tablename__ = "clone_script_segments"
@@ -99,6 +112,7 @@ class CloneScriptSegment(Base):
     end_time = Column(Float, nullable=False)
     shot_description = Column(Text, nullable=True)
     dialogue = Column(JSON, nullable=True)
+    first_frame_path = Column(String(256), nullable=True)
     segment_type = Column(String(128), nullable=True)
     clone_script = relationship("CloneScript", back_populates="clone_segments")
     created_at = Column(DateTime, default=datetime.utcnow)

@@ -12,6 +12,7 @@ def parse_cors(v: Any) -> List[str] | str:
 
 class Settings(BaseSettings):
     DATABASE_URL: str = "postgresql://postgres:postgres@localhost:5433/parse_video"
+    ASYNC_DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@localhost:5433/parse_vide"
     REDIS_URL: str = "redis://localhost:6380/0"
     UPLOAD_DIR: str = "./uploads"
     MAX_UPLOAD_SIZE: int = 500 * 1024 * 1024
@@ -27,9 +28,6 @@ class Settings(BaseSettings):
     BYTEDANCE_SK: str = ""
 
     BYTEDANCE_API_KEY: str = ""
-    
-    PUBLIC_API_URL: str = ""
-    PUBLIC_API_PREFIX: str
 
     LLM_NAME: str = ""
     LLM_BASE_URL: str = ""
@@ -50,7 +48,12 @@ class Settings(BaseSettings):
 
     BACKEND_HOST: str=""
     BACKEND_PORT: int = 8000
+
+    SECRET_KEY: str =""
     
+    ACCESS_TOKEN_EXPIRE_MINUTES: int= 60
+
+    RUN_ENV: str = "DEV"
     class Config:
         env_file = "../.env"
 

@@ -278,11 +278,7 @@ class CharacterAsset(BaseModel):
 
     visual_anchor_prompt: Optional[str] = Field(
         default=None,
-        description="用于控制 Midjourney/Flux 生成一致性长相的英文定妆照提示词。必须是单人、正脸、干净背景的高清半身肖像描述。如果是旁白，则不填。"
-    )
-    voice_style_guide: Optional[str] = Field(
-        default=None,
-        description="大模型对该角色声音风格的建议描述。例如：'声音低沉、带有磁性、语速中等'。如果没有台词，则不填。"
+        description="用于控制 Midjourney/Flux 生成一致性长相的英文定妆照提示词。必须是单人、正脸、干净背景的高清半身肖像描述。如果不出镜，则不填。"
     )
 
 class CharacterManifest(BaseModel):
@@ -296,27 +292,32 @@ PRODUCER_SYSTEM_PROMPT = """
 
 # Task
 
-阅读用户提供的【角色清单】和【全新分镜 JSON 脚本】，提取出本片中所有需要出镜的实体角色，并为他们定制用于 AI 绘图的“定妆照提示词”以及匹配的“声音设定”。
+阅读用户提供的描述信息，提取出本片中所有需要出镜的实体角色，并为他们定制用于 AI 绘图的“定妆照提示词”。
 
 # Rules
 
-- 提取完整性：必须遍历所有分镜和角色清单，找出所有有台词或出镜的角色（包括旁白）。
-- `visual_anchor_prompt` 必须是高质量的、单人、正脸、干净背景的“定妆照/证件照”级别的英文提示词，方便后续作为视觉参考锚（Character Reference）。如果是纯配音旁白，该项填 None。
+- 提取完整性：必须遍历所有分镜和角色清单，找出所有出镜的角色，不出镜角色不需要提取。
 """
 
 PRODUCER_QUERY_PROMPT = """
-请根据以下输入的 【角色清单】和 【分镜脚本】，提炼角色与声音资产清单：
+请根据以下输入的 【角色清单】、【全局画风母版】和【分镜脚本】，提炼角色资产清单：
 
 1. 角色清单（来自创意总监的输出）
 ```Json
 {role_library}
 ```
 
-2. 全新分镜 JSON 脚本（来自分镜导演的输出）
+2. 全局画风母版
+```Json
+{style_template}
+```
+
+3. 分镜脚本
 ```Json
 {storyboard}
 ```
 
+{retry_messages}
 请输出角色资产信息：
 """
 

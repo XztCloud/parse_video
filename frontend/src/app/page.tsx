@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import VideoUploader from "@/components/VideoUploader";
 import DouyinInput from "@/components/DouyinInput";
 import { listVideos, VideoListItem } from "@/lib/api";
+import LogoutButton from "@/components/logout";
+
 
 export default function Home() {
   const router = useRouter();
@@ -75,10 +77,23 @@ export default function Home() {
   return (
     <main className="min-h-screen bg-gray-50">
       {/* Header */}
-      <header className="bg-white shadow-sm">
-        <div className="max-w-5xl mx-auto px-6 py-4">
-          <h1 className="text-2xl font-bold text-gray-900">视频脚本解析器</h1>
-          <p className="text-sm text-gray-500 mt-1">上传视频或输入抖音链接，自动解析为结构化脚本</p>
+      <header className="sticky top-0 z-50 w-full border-b border-gray-100 bg-white/80 backdrop-blur-md">
+        <div className="mx-auto flex max-w-5xl items-center justify-between px-4 py-4 sm:px-6">
+          {/* 左侧：标题与副标题 */}
+          <div className="flex flex-col space-y-0.5">
+            <h1 className="bg-gradient-to-r from-gray-900 to-gray-700 bg-clip-text text-xl font-bold tracking-tight text-transparent sm:text-2xl">
+              视频脚本解析器
+            </h1>
+            <p className="hidden text-xs text-gray-400 sm:block">
+              上传视频或输入抖音链接，自动解析为结构化脚本
+            </p>
+          </div>
+
+          {/* 右侧：动作按钮区 */}
+          <div className="flex items-center gap-4">
+            {/* 如果以后有“个人中心”或“历史记录”的图标，可以加在这里 */}
+            <LogoutButton />
+          </div>
         </div>
       </header>
 

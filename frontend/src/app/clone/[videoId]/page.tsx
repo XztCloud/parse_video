@@ -1,6 +1,7 @@
 "use client";
 
 import CreateClone from "@/components/CreateClone";
+import LogoutButton from "@/components/logout";
 import ScriptTimeline from "@/components/ScriptTimeline";
 import {
   getScript,
@@ -57,8 +58,12 @@ export default function ClonePage() {
       PENDING: "bg-gray-100 text-gray-600",
       PLOT: "bg-yellow-100 text-yellow-500",
       PLOT_DONE: "bg-green-100 text-green-500",
+      VOICE: "bg-yellow-100 text-yellow-550",
+      VOICE_DONE: "bg-green-100 text-green-550",
       SEGMENTS: "bg-yellow-100 text-yellow-600",
       SEGMENTS_DONE: "bg-green-100 text-green-600",
+      IMAGE: "bg-yellow-100 text-yellow-650",
+      IMAGE_DONE: "bg-green-100 text-green-650",
       VIDEO: "bg-yellow-100 text-yellow-700",
       DONE: "bg-green-100 text-green-700",
       FAILED: "bg-red-100 text-red-700",
@@ -71,8 +76,12 @@ export default function ClonePage() {
       PENDING: "开始复刻",
       PLOT: "生成剧本大纲",
       PLOT_DONE: "剧本完成",
+      VOICE: "生成对话音频",
+      VOICE_DONE: "对话音频完成",
       SEGMENTS: "生成分镜脚本",
       SEGMENTS_DONE: "分镜完成",
+      IMAGE: "生成图片素材",
+      IMAGE_DONE: "图片素材完成",
       VIDEO: "生成视频",
       DONE: "复刻完成",
       FAILED: "复刻失败",
@@ -108,7 +117,7 @@ export default function ClonePage() {
             onClick={() => router.back()}
             className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600"
           >
-            返回首页
+            返回
           </button>
         </div>
       </main>
@@ -125,7 +134,51 @@ export default function ClonePage() {
 
   return (
     <main className="min-h-screen bg-gray-50">
-      <header className="bg-white shadow-sm">
+      <header className="sticky top-0 z-50 w-full border-b border-gray-100 bg-white/80 backdrop-blur-md">
+        <div className="mx-auto flex max-w-5xl items-center justify-between px-4 py-4 sm:px-6">
+          {/* 左侧区域：返回按钮 + 标题 */}
+          <div className="flex items-center gap-3">
+            {/* 返回上一页按钮 */}
+            <button
+              onClick={() => router.back()}
+              title="返回上一页按钮"
+              className="group flex h-9 w-9 items-center justify-center rounded-full border border-gray-100 bg-white text-gray-500 shadow-sm transition-all duration-150 hover:bg-gray-50 hover:text-gray-700 hover:shadow-md active:scale-95"
+            >
+              {/* 精致的向左箭头 */}
+              <svg
+                className="h-4 w-4 transition-transform duration-150 group-hover:-translate-x-0.5"
+                fill="none"
+                viewBox="0 0 24 24"
+                strokeWidth="2.5"
+                stroke="currentColor"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M15.75 19.5L8.25 12l7.5-7.5"
+                />
+              </svg>
+            </button>
+
+            {/* 标题与副标题 */}
+            <div className="flex flex-col space-y-0.5">
+              <h1 className="bg-gradient-to-r from-gray-900 to-gray-700 bg-clip-text text-xl font-bold tracking-tight text-transparent sm:text-2xl">
+                复刻 {title}
+              </h1>
+              <p className="hidden text-xs text-gray-400 sm:block">
+                复刻原视频脚本
+              </p>
+            </div>
+          </div>
+
+          {/* 右侧：动作按钮区 */}
+          <div className="flex items-center gap-4">
+            <LogoutButton />
+          </div>
+        </div>
+      </header>
+
+      {/* <header className="bg-white shadow-sm">
         <div className="max-w-5xl mx-auto px-6 py-4">
           <button
             onClick={() => router.back()}
@@ -138,7 +191,7 @@ export default function ClonePage() {
             复刻 {title}{" "}
           </h1>
         </div>
-      </header>
+      </header> */}
       <div className="max-w-5xl mx-auto px-6 py-8">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="lg:col-span-3">

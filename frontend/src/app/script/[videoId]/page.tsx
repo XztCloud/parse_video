@@ -6,6 +6,7 @@ import { getScript, exportScript, ScriptResponse } from "@/lib/api";
 import ScriptTimeline from "@/components/ScriptTimeline";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import LogoutButton from "@/components/logout";
 
 export default function ScriptDetailPage() {
   const router = useRouter();
@@ -133,15 +134,45 @@ export default function ScriptDetailPage() {
 
   return (
     <main className="min-h-screen bg-gray-50">
-      <header className="bg-white shadow-sm">
-        <div className="max-w-5xl mx-auto px-6 py-4">
-          <button
-            onClick={() => router.push("/")}
-            className="text-blue-500 hover:text-blue-600 text-sm"
-          >
-            ← 返回首页
-          </button>
-          <h1 className="text-2xl font-bold text-gray-900 mt-2">脚本详情</h1>
+
+      <header className="sticky top-0 z-50 w-full border-b border-gray-100 bg-white/80 backdrop-blur-md">
+        <div className="mx-auto flex max-w-5xl items-center justify-between px-4 py-4 sm:px-6">
+          
+          {/* 左侧区域：返回按钮 + 标题 */}
+          <div className="flex items-center gap-3">
+            {/* 返回上一页按钮 */}
+            <button
+              onClick={() => router.push("/")}
+              title="返回首页"
+              className="group flex h-9 w-9 items-center justify-center rounded-full border border-gray-100 bg-white text-gray-500 shadow-sm transition-all duration-150 hover:bg-gray-50 hover:text-gray-700 hover:shadow-md active:scale-95"
+            >
+              {/* 精致的向左箭头 */}
+              <svg 
+                className="h-4 w-4 transition-transform duration-150 group-hover:-translate-x-0.5" 
+                fill="none" 
+                viewBox="0 0 24 24" 
+                strokeWidth="2.5" 
+                stroke="currentColor"
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
+              </svg>
+            </button>
+
+            {/* 标题与副标题 */}
+            <div className="flex flex-col space-y-0.5">
+              <h1 className="bg-gradient-to-r from-gray-900 to-gray-700 bg-clip-text text-xl font-bold tracking-tight text-transparent sm:text-2xl">
+                脚本详情
+              </h1>
+              <p className="hidden text-xs text-gray-400 sm:block">
+                解析得到的视频脚本，包含剧情大纲和分镜脚本
+              </p>
+            </div>
+          </div>
+
+          {/* 右侧：动作按钮区 */}
+          <div className="flex items-center gap-4">
+            <LogoutButton />
+          </div>
         </div>
       </header>
 

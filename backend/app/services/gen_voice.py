@@ -361,7 +361,7 @@ class GenVoice:
                 self.filter_voice_info[role_voice.role_name] = selected_voice_type
             except Exception as e:
                 llm_error_meg = f"LLM调用失败: {str(e)}\n详细堆栈:\n{traceback.format_exc()}"
-                raise Exception(f"LLM调用失败: {str(e)}")
+                raise
 
         await llm_select_voice()
 

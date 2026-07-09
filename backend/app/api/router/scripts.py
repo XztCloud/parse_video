@@ -1,28 +1,37 @@
+import json
 import os
+import traceback
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse
-from ..database import SessionLocal
-from ..models.script import Script, ScriptSegment
+
+from app.api.deps import CurrentUser, SessionDep
+from ...database import SessionLocal
+from ...models.script import Script, ScriptSegment
+from app.util import logger
 
 router = APIRouter(prefix="/scripts", tags=["scripts"])
 
 @router.get("/{video_id}")
-async def get_script(video_id: int):
-    db = SessionLocal()
+async def get_script(video_id: int, db: SessionDep, user: CurrentUser):
     try:
         script = db.query(Script).filter(Script.video_id == video_id).first()
         if not script:
+            print('not script!!!!')
             raise HTTPException(status_code=404, detail="脚本不存在")
-        script_content = script.content
+        print(f'find script, {script.parse_file_path}')
+        print(f'find script, {script.content}')
+        script_content = '未找到文件'
         if script.parse_file_path and os.path.isfile(script.parse_file_path):
             try:
                 with open(script.parse_file_path, 'r', encoding='utf-8') as f:
                     script_content = f.read()
                 print(f"从文件 {script.parse_file_path} 读取脚本内容成功")
+                print(f'文件内容:{script_content},  type is {type(script_content)}')
             except Exception as e:
                 print(f"读取脚本内容时发生错误: {e}")
                 script_content = script.content
+
         segments = db.query(ScriptSegment).filter(ScriptSegment.script_id == script.id).order_by(ScriptSegment.start_time).all()
         return {
             "id": script.id,
@@ -40,12 +49,12 @@ async def get_script(video_id: int):
                 for seg in segments
             ],
         }
-    finally:
-        db.close()
+    except Exception as e:
+        traceback.print_exc()
+        print(f'error {str(e)}')
 
 @router.get("/{video_id}/export")
-async def export_script(video_id: int):
-    db = SessionLocal()
+async def export_script(video_id: int, db: SessionDep):
     try:
         script = db.query(Script).filter(Script.video_id == video_id).first()
         if not script:
@@ -54,6 +63,7 @@ async def export_script(video_id: int):
         try:
             with open(script.parse_file_path, 'r', encoding='utf-8') as f:
                 script_content = f.read()
+            
         except FileNotFoundError:
             script_content = script.content
         segments = db.query(ScriptSegment).filter(ScriptSegment.script_id == script.id).order_by(ScriptSegment.start_time).all()
@@ -72,5 +82,6 @@ async def export_script(video_id: int):
             ],
         }
         return JSONResponse(content=export_data, headers={"Content-Disposition": f"attachment; filename=script_{video_id}.json"})
-    finally:
-        db.close()
+    except Exception as e:
+        logger.error(f'export_script failed. {str(e)}')
+        raise HTTPException(status_code=400, detail=f"解析失败: {str(e)}")

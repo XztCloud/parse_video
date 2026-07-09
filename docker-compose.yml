@@ -6,27 +6,40 @@ services:
     env_file:
       - ./.env
     volumes:
-      - ./backend:/app
+      - ./backend/uploads:/app/uploads
+      - ./backend/LOGS:/app/LOGS
     ports:
       - "8000:8000"
     environment:
       - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/parse_video
       - REDIS_URL=redis://redis:6379/0
+      - RUN_ENV=DEV
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
 
   celery_worker:
     build: ./backend  # 💡 核心：使用跟上面完全相同的构建上下文和镜像
     env_file:
       - .env
     volumes:
-      - ./backend:/app
+      - ./backend/uploads:/app/uploads
+      - ./backend/LOGS:/app/LOGS
     # 💡 核心：用 command 覆盖 Dockerfile 的默认 CMD，改走 Celery 启动命令
     # 请根据你实际的 tasks 位置修改 -A 后面的路径，-c 2 限制并发为 2（适合 2 核服务器）
     command: start-worker
     depends_on:
-      - redis
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
     environment:
       - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/parse_video
       - REDIS_URL=redis://redis:6379/0
+      - RUN_ENV=DEV
+    
 
   frontend:
     build: 
@@ -36,6 +49,8 @@ services:
       - .env
     ports:
       - "3000:3000"
+    environment:
+      - API_PROXY_TARGET=http://backend:8000
 
   postgres:
     image: postgres:15
@@ -47,6 +62,11 @@ services:
       - postgres_data:/var/lib/postgresql/data
     ports:
       - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user -d mydb"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
   redis:
     image: redis:7-alpine
@@ -55,4 +75,3 @@ services:
 
 volumes:
   postgres_data:
-  uploads_data:

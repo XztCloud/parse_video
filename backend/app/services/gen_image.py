@@ -68,23 +68,23 @@ class GenImage:
             **params
         }
         result=None
-        print(f'request full url:{self.base_url}, payload is {payload}')
+        logger.info(f'request full url:{self.base_url}, payload is {payload}')
         try:
             async with httpx.AsyncClient() as client:
                 response = await client.request("POST", self.base_url, json=payload, headers=headers)
                 response.raise_for_status()
                 result = response.json()
-                print(f'gen image result:{result}, type is {type(result)}')
+                logger.info(f'gen image result:{result}, type is {type(result)}')
         except httpx.HTTPStatusError as exc:
             # 捕获 HTTP 错误（如 400, 401, 500 等）
-            print(f"HTTP 错误，状态码: {exc.response.status_code}")
-            print(f"错误返回内容: {exc.response.text}")
-            raise Exception(f"HTTP 错误，状态码: {exc.response.status_code}  错误返回内容: {exc.response.text}")
+            logger.error(f"HTTP 错误，状态码: {exc.response.status_code}")
+            logger.error(f"错误返回内容: {exc.response.text}")
+            raise
 
         except httpx.RequestError as exc:
             # 捕获网络连接错误（如断网、超时、DNS 解析失败等，此时连状态码都没有）
-            print(f"网络连接失败: {exc.request.url} 无法访问")
-            raise Exception(f'网络连接失败: {exc.request.url} 无法访问')
+            logger.error(f"_request_generate 网络连接失败: {exc.request.url} 无法访问")
+            raise
         return result
     
     @retry_on_httpx_error
@@ -114,19 +114,19 @@ class GenImage:
                             f.write(chunk)
         except httpx.HTTPStatusError as exc:
             # 捕获 HTTP 错误（如 400, 401, 500 等）
-            print(f"HTTP 错误，状态码: {exc.response.status_code}")
-            print(f"错误返回内容: {exc.response.text}")
-            raise Exception(f"HTTP 错误，状态码: {exc.response.status_code}  错误返回内容: {exc.response.text}")
+            logger.error(f"HTTP 错误，状态码: {exc.response.status_code}")
+            logger.error(f"错误返回内容: {exc.response.text}")
+            raise
 
         except httpx.RequestError as exc:
             # 捕获网络连接错误（如断网、超时、DNS 解析失败等，此时连状态码都没有）
-            print(f"网络连接失败: {exc.request.url} 无法访问")
-            raise Exception(f'网络连接失败: {exc.request.url} 无法访问')
+            print(f"_download_image 网络连接失败: {exc.request.url} 无法访问")
+            raise
                         
         print(f"✅ 图片下载成功: {file_path}")
         return file_path
 
-    async def gen_image(self,  gen_image_params: GenImageParams, save_dir:str|Path, prefix:str):
+    async def gen_image(self,  gen_image_params: GenImageParams, save_dir:str|Path, prefix:str) -> list[Path]:
         
         image_info = await self._request_generate(gen_image_params=gen_image_params)
         images_path = []

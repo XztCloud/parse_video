@@ -7,8 +7,9 @@ import os
 from pathlib import Path
 import re
 import shutil
+import threading
 import time
-
+from PIL import Image
 import httpx
 
 from app.config import settings
@@ -46,7 +47,7 @@ def retry_on_httpx_error(func=None, *, retries: int=3, delay: float=1.0):
                     try_cnt += 1
                     if try_cnt > retries:
                         print(f"[{func.__name__}] 已达到最大重试次数 ({retries})，抛出异常。")
-                        raise e
+                        raise
                     print(f"[{func.__name__}] 捕获异常，正在进行第 {try_cnt}/{retries} 次重试...")
                     await asyncio.sleep(delay)
         return wrapper
@@ -104,6 +105,33 @@ def retry_error(func=None, *, retries:int=3, delay:float=1.0):
         return outter(func)
     
     return outter
+
+
+def timeout(seconds):
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            result = [None]
+            exception = [None]
+
+            def target():
+                try:
+                    result[0] = func(*args, **kwargs)
+                except Exception as e:
+                    exception[0] = e
+
+            thread = threading.Thread(target=target)
+            thread.daemon = True
+            thread.start()
+            thread.join(seconds)
+
+            if thread.is_alive():
+                raise TimeoutError(f"函数 {func.__name__} 执行超过 {seconds} 秒")
+            if exception[0]:
+                raise exception[0]
+            return result[0]
+        return wrapper
+    return decorator
 
 
 def calculate_duration_units(text: str):
@@ -248,3 +276,26 @@ def configure_logging(log_enabled: bool):
 
 def get_md5(content: str) -> str:
     return hashlib.md5(content.encode('utf-8')).hexdigest()
+
+
+def get_image_info(file_path):
+    """判断是否为图片并返回宽高"""
+    try:
+        with Image.open(file_path) as img:
+            # 获取图片格式和尺寸
+            width, height = img.size
+            format = img.format
+            return {
+                'is_image': True,
+                'width': width,
+                'height': height,
+                'format': format
+            }
+    except Exception:
+        # 不是图片或无法读取
+        return {
+            'is_image': False,
+            'width': None,
+            'height': None,
+            'format': None
+        }

@@ -112,6 +112,6 @@ class PredictVoiceDuration:
     
 
 def train_tts_predict_model():
-    # PredictVoiceDuration.train_data()
-    predict_duration = PredictVoiceDuration.predict_model(spk_id='zh_male_guanggaojieshuo_uranus_bigtts', next_text='有一个壮族人去赶集，走到半路，看见一个汉族人在犁田，就问：“欸，欸，欸！要水牛来犁田呀？')
-    print(f'预测时长：{predict_duration} 秒')
+    PredictVoiceDuration.train_data()
+    # predict_duration = PredictVoiceDuration.predict_model(spk_id='zh_male_guanggaojieshuo_uranus_bigtts', next_text='有一个壮族人去赶集，走到半路，看见一个汉族人在犁田，就问：“欸，欸，欸！要水牛来犁田呀？')
+    # print(f'预测时长：{predict_duration} 秒')

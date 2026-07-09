@@ -21,8 +21,6 @@ celery_app.conf.update(
 )
 celery_app.autodiscover_tasks(["app.tasks.parse_video"], force=True)
 
-
-
 def start_celery_worker():
     """供 pyproject.toml 绑定的命令入口函数"""
     print("🚀 正在通过 Poetry 快捷命令启动 Celery Worker...")
@@ -33,6 +31,49 @@ def start_celery_worker():
         worker = celery_app.Worker(
             loglevel="INFO",
             pool="solo",
+            logfile=log_file,  # ✨ 核心：指定了这个参数，Celery 就会自动写文件
+        )
+        
+        print(f"ℹ️ Celery 自带日志将自动写入到: {log_file}")
+        worker.start()
+    except Exception as e:
+        
+        print(f"❌ Worker 异常退出: {e}")
+        sys.exit(1)
+
+    
+def start_io_worker():
+    """ io 队列任务，低资源 """
+    print("🚀 正在启动 Celery IO Worker...")
+    try:
+        log_file = os.path.join(settings.LOG_DIR, "celery.log")
+
+        worker = celery_app.Worker(
+            loglevel="INFO",
+            queues=['io'],
+            pool="thread",
+            concurrency=8,
+            logfile=log_file,  # ✨ 核心：指定了这个参数，Celery 就会自动写文件
+        )
+        
+        print(f"ℹ️ Celery 自带日志将自动写入到: {log_file}")
+        worker.start()
+    except Exception as e:
+        
+        print(f"❌ Worker 异常退出: {e}")
+        sys.exit(1)
+
+def start_cpu_worker():
+    """ cpu 队列任务，高资源消耗任务 """
+    print("🚀 正在启动 Celery CPU Worker...")
+    try:
+        log_file = os.path.join(settings.LOG_DIR, "celery.log")
+
+        worker = celery_app.Worker(
+            loglevel="INFO",
+            queues=['cpu'],
+            pool="prefork",
+            concurrency=2,
             logfile=log_file,  # ✨ 核心：指定了这个参数，Celery 就会自动写文件
         )
         

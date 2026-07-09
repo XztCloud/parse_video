@@ -157,6 +157,7 @@ def convert_markdown(ori_data: json) -> str:
         reset_title_list = reset_title_list if reset_title_list else target_list
         df = pd.DataFrame(reset_title_list)
         # index=False 表示不把行索引（0, 1, 2...）写进表格
+        df = df.replace(r'\|', r'\|', regex=True)
         markdown_table = df.to_markdown(index=False)
         return markdown_table
 

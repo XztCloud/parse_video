@@ -12,8 +12,9 @@ from langgraph.graph import END, START, StateGraph
 from pydantic import BaseModel, Field
 from langchain_core.runnables import RunnableConfig
 from langgraph.types import Command
+from sqlalchemy import delete, select
 from app.services.gen_voice import GenVoice, GenVoiceParam, Lines
-from app.database import SessionLocal
+from app.database import AsyncSessionLocal, SessionLocal
 from app.models.script import CloneScript, CloneStatus, CloneVoice
 from app.config import settings
 from app.util import calculate_duration_units, get_md5, make_dir
@@ -57,11 +58,14 @@ def log_node_start():
 async def preload_lines_voices(state: CloneVoiceState, config: RunnableConfig):
     ''' 文本转音频前的准备操作 '''
     log_node_start()
-    db = SessionLocal()
+    db = AsyncSessionLocal()
     try:
-        clone_script = db.query(CloneScript).filter(CloneScript.id == state['clone_script_id']).first()
+        statment = await db.execute(select(CloneScript).where(CloneScript.id == state['clone_script_id']))
+        clone_script = statment.scalar_one_or_none()
         if not clone_script or not clone_script.clone_parse_pointer:
             raise Exception('not find clone_script in generate_storyboard')
+        
+        await db.execute(delete(CloneVoice).where(CloneVoice.script_id == state['clone_script_id']))
         
         parse_pointer = json.loads(clone_script.clone_parse_pointer)
 
@@ -134,9 +138,8 @@ async def preload_lines_voices(state: CloneVoiceState, config: RunnableConfig):
             save_dir=save_dir
         )
 
-        clone_script.clone_status = CloneStatus.VOICE
         clone_script.clone_progress = 21
-        db.commit() 
+        await db.commit() 
 
         logger.info(f'voice_seek_info is {voice_seek_info.model_dump_json()}')
 
@@ -156,11 +159,11 @@ async def preload_lines_voices(state: CloneVoiceState, config: RunnableConfig):
             goto='process_error'
         )
     finally:
-        db.close()
+        await db.close()
 
 async def download_voices(state:CloneVoiceState, config: RunnableConfig):
     log_node_start()
-    db = SessionLocal()
+    db = AsyncSessionLocal()
     try:
         voice_seek_info = state['voice_seek_info']
         if not isinstance(voice_seek_info, VoiceSeekInfo):
@@ -211,8 +214,8 @@ async def download_voices(state:CloneVoiceState, config: RunnableConfig):
             )
 
             db.add(voice_info)
-            db.commit()
-            db.refresh(voice_info)
+            await db.commit()
+            await db.refresh(voice_info)
 
         ratio = (
             plot_voice_duration
@@ -227,7 +230,7 @@ async def download_voices(state:CloneVoiceState, config: RunnableConfig):
         logger.exception('download_voices 下载音频发生错误')
         return {'error': error_message}
     finally:
-        db.close()
+        await db.close()
     
 
 async def shourld_reset_voice_duration(state:CloneVoiceState):
@@ -266,9 +269,10 @@ async def shourld_reset_voice_duration(state:CloneVoiceState):
 
 async def reset_lines_duration(state: CloneVoiceState):
     ''' 重新设置每句话的时长 '''
-    db = SessionLocal()
+    db = AsyncSessionLocal()
     try:
-        clone_script = db.query(CloneScript).filter(CloneScript.id == state['clone_script_id']).first()
+        statment = await db.execute(select(CloneScript).where(CloneScript.id == state['clone_script_id']))
+        clone_script = statment.scalar_one_or_none()
         if not clone_script or not clone_script.clone_parse_pointer:
             raise Exception('not find clone_script in generate_storyboard')
         
@@ -291,7 +295,7 @@ async def reset_lines_duration(state: CloneVoiceState):
                 actor_lines.predict_duration = real_lines_duration[cnt]
                 cnt += 1
         clone_script.clone_parse_pointer = parse_pointer.model_dump_json()
-        db.commit()
+        await db.commit()
 
     except Exception as e:
         error_message = f'reset_lines_duration failed. {str(e)}'
@@ -299,16 +303,17 @@ async def reset_lines_duration(state: CloneVoiceState):
         logger.exception('reset_lines_duration 重置台词时长发生错误')
         raise e
     finally:
-        db.close()
+        await db.close()
 
 
 async def save_voice_info(state: CloneVoiceState):
-    db = SessionLocal()
+    db = AsyncSessionLocal()
     try:
         voice_seek_info = state['voice_seek_info']
         if not isinstance(voice_seek_info, VoiceSeekInfo):
             raise Exception('voice_seek_info not init')
-        clone_script = db.query(CloneScript).filter(CloneScript.id == state['clone_script_id']).first()
+        statment = await db.execute(select(CloneScript).where(CloneScript.id == state['clone_script_id']))
+        clone_script = statment.scalar_one_or_none()
         if not clone_script or not clone_script.clone_parse_pointer:
             raise Exception('not find clone_script in generate_storyboard')
         sort_order = 1
@@ -331,13 +336,13 @@ async def save_voice_info(state: CloneVoiceState):
         clone_script.clone_status = CloneStatus.VOICE_DONE
         clone_script.clone_progress = 30
 
-        db.commit()
+        await db.commit()
                 
     except Exception as e:
-        db.rollback()
+        await db.rollback()
         raise e
     finally:
-        db.close()
+        await db.close()
 
 
 async def next_scene_voice(state:CloneVoiceState):

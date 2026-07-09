@@ -11,6 +11,32 @@ export default function VideoUploader({ onUploadSuccess }: VideoUploaderProps) {
   const [isUploading, setIsUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isDragging, setIsDragging] = useState(false);
+
+  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+  };
+
+  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    setIsDragging(false);
+
+    const file = e.dataTransfer.files?.[0];
+
+    if (file) {
+      handleUpload(file);
+    }
+  };
 
   const handleUpload = async (file: File) => {
     setIsUploading(true);
@@ -35,8 +61,18 @@ export default function VideoUploader({ onUploadSuccess }: VideoUploaderProps) {
   return (
     <div className="w-full max-w-md mx-auto">
       <div
-        className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center cursor-pointer hover:border-blue-500 transition-colors"
+        className={`
+          border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-colors
+          ${
+            isDragging
+              ? "border-blue-500 bg-blue-50"
+              : "border-gray-300 hover:border-blue-500"
+          }
+        `}
         onClick={() => fileInputRef.current?.click()}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
       >
         <input
           type="file"
@@ -50,7 +86,9 @@ export default function VideoUploader({ onUploadSuccess }: VideoUploaderProps) {
         ) : (
           <div>
             <div className="text-gray-500 mb-2">点击或拖拽视频文件到此处</div>
-            <div className="text-sm text-gray-400">支持 MP4, MOV, AVI, MKV 格式</div>
+            <div className="text-sm text-gray-400">
+              支持 MP4, MOV, AVI, MKV 格式
+            </div>
           </div>
         )}
       </div>

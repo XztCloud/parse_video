@@ -1,5 +1,5 @@
-fastapi==0.104.1
-uvicorn==0.24.0
+fastapi==0.139.0
+uvicorn==0.51.0
 sqlalchemy==2.0.23
 alembic==1.13.0
 psycopg2-binary==2.9.9
@@ -7,7 +7,7 @@ celery==5.3.6
 redis==5.0.1
 python-multipart==0.0.6
 httpx==0.25.2
-pydantic>=2.7.0,<3.0
+pydantic[email]>=2.7.0,<3.0
 pydantic-settings==2.1.0
 python-dotenv==1.0.0
 dashscope==1.14.1
@@ -24,3 +24,9 @@ mutagen==1.47.0
 pydub===0.25.1
 joblib===1.5.3
 scikit-learn===1.9.0
+videofetch===0.9.1
+pillow===12.3.0
+asyncpg===0.31.0
+pwdlib[argon2,bcrypt] == 0.3.0
+jwt===1.4.0
+PyJWT == 2.13.0

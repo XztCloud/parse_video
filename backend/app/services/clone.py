@@ -5,6 +5,7 @@ from langgraph.graph import END, START, StateGraph
 from app.services.gen_voice import GenVoice
 from celery.utils.log import get_task_logger
 from app.services.clone_voice import CustomVoiceContext, clone_voice_graph
+from app.services.clone_image import clone_image_graph
 
 logger = get_task_logger(__name__)
 
@@ -99,6 +100,17 @@ async def storyboard_generation(state: CloneState):
 async def image_generation(state: CloneState):
     try:
         logger.info('begin run storyboard_generation')
+
+        input_data = {
+            "clone_script_id": state["clone_script_id"],
+            "character_manifest": None,
+            "role_asset_library": {},
+            "scene_asset_library": {},
+            "retry_messages": "",
+            "error": ""
+        }
+
+        await clone_image_graph.ainvoke(input_data)
         return {
             'step': 5
         }

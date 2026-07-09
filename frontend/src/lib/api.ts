@@ -1,9 +1,22 @@
 import axios from "axios";
 
 const API_PREFIX = "/api/v1";
-const api = axios.create({
+export const api = axios.create({
   baseURL: "",
   timeout: 30000,
+  // ⚡ 关键核心：允许跨域请求携带和接收 Cookie 凭证
+  withCredentials: true,
+});
+
+// 自动注入 Authorization Header (支持你后端的 OAuth2PasswordBearer)
+api.interceptors.request.use((config) => {
+  if (typeof window !== "undefined") {
+    const token = localStorage.getItem("token");
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+  }
+  return config;
 });
 
 export interface VideoUploadResponse {
@@ -46,8 +59,18 @@ export interface ScriptSegment {
 export interface CloneVoice {
   id: number;
   role_name: string;
+  duration: number;
   voice_type: string;
+  spk_id: string;
   text: string;
+}
+
+export interface CloneImage {
+  id: number;
+  role_name: string;
+  width: number;
+  height: number;
+  desc: string | null;
 }
 
 export interface ScriptResponse {
@@ -101,9 +124,15 @@ export interface CloneVideo {
 export interface ClonseScriptResponse {
   id: number;
   content: string;
-  voices: CloneVoice[]
+  voices: CloneVoice[];
   segments: ScriptSegment[];
+  images: CloneImage[];
   videos: CloneVideo[];
+}
+
+export interface Toekn {
+  access_token: string;
+  token_type: string;
 }
 
 export const getDefaultCloneRequest = (videoId: number): ClonePlotRequest => ({
@@ -208,3 +237,21 @@ export const exportCloneVoice = async (cloneVoiceId: number): Promise<Blob> => {
   const response = await api.get(`${API_PREFIX}/clone/voice/${cloneVoiceId}`, { responseType: "blob" });
   return response.data;
 }
+
+export function getImageUrl(id: number): string {
+  const base = api.defaults.baseURL ?? "";
+  return `${base}${API_PREFIX}/clone/image/${id}`;
+}
+
+export const login = async (params: URLSearchParams): Promise<void> => {
+  const response = await api.post(`${API_PREFIX}/login/access-token`, params);
+  localStorage.setItem('token', response.data.access_token);
+  localStorage.setItem('username', params.get('username') || '未知');
+}
+
+export const logout = async (): Promise<void> => {
+  const response = await api.post(`${API_PREFIX}/login/logout`);
+  localStorage.removeItem('token');
+  localStorage.removeItem('username')
+}
+
