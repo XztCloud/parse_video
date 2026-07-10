@@ -10,7 +10,7 @@ from app.api.__init__ import __api_version__
 from app.util import get_env_value, configure_logging, logger
 from .config import settings
 import os
-from app.api.router_main import api_router
+from app.api.router_main import api_router, authenticated_router
 
 
 app = FastAPI(title="视频脚本解析平台", version="1.0.0")
@@ -29,14 +29,7 @@ os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
 def health_check():
     return {"status": "ok"}
 
-app.include_router(api_router)
-
 from .database import Base, engine
-from .models import video, script
-
-@app.on_event("startup")
-def startup():
-    Base.metadata.create_all(bind=engine)
 
 
 def create_app() -> FastAPI:
@@ -46,6 +39,7 @@ def create_app() -> FastAPI:
         """管理 fastAPI 开始和结束 生命周期"""
 
         try:
+            # Base.metadata.create_all(bind=engine)  创建遗漏数据表。dev环境，线上使用alembic 替代
             logger.info('Server is ready to accept connections!')
 
             yield
@@ -60,6 +54,13 @@ def create_app() -> FastAPI:
         'openapi_url': '/api/v1/openapi.json'
     }
 
+    if settings.is_production:
+        app_kwargs.update({
+            'docs_url': None,     # 关闭 /docs
+            'redoc_url': None,    # 关闭 /redoc
+            'openapi_url': None   # 关闭 /openapi.json (核心！防止被爬取接口结构)
+        })
+
     app = FastAPI(**app_kwargs)
 
     if settings.all_cors:
@@ -73,6 +74,7 @@ def create_app() -> FastAPI:
         
 
     app.include_router(api_router, prefix='/api/v1')
+    app.include_router(authenticated_router, prefix='/api/v1')
     return app
 
 

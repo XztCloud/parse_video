@@ -189,7 +189,7 @@ CREATIVE_QUERY_PROMPT = """
 # """
 
 creative_model = model.with_structured_output(CloneAnalysis)
-
+creative_model_strict = model.with_structured_output(CloneAnalysis, strict=True)
 
 
 #节点B##########################################################################################################

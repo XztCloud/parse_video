@@ -63,7 +63,7 @@ async def login_access_token(
         key="access_token",
         value=access_token,
         httponly=True,
-        secure=settings.RUN_ENV == 'PRODUCTION',      # 开发环境
+        secure=False,   # 如果现网使用https 再使用 settings.is_production, 
         samesite="lax",
         path="/",
         max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
@@ -79,7 +79,7 @@ async def logout(response: Response):
         key="access_token",
         value="",
         httponly=True,
-        secure=settings.RUN_ENV == 'PRODUCTION',  # 生产环境请改为 True
+        secure=False,  # 如果现网使用https 再使用 settings.is_production, 
         samesite="lax",
         path="/",
         max_age=0,     # 关键：设置为 0 立即过期

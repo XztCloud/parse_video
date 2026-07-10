@@ -10,7 +10,8 @@ services:
         condition: service_healthy
         restart: true
     environment:
-      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/parse_video
+      - POSTGRES_SERVER=postgres
+      - POSTGRES_PORT=5432
       - REDIS_URL=redis://redis:6379/0
       - RUN_ENV=DEV
     command: bash prestart.sh
@@ -25,9 +26,10 @@ services:
     ports:
       - "8000:8000"
     environment:
-      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/parse_video
+      - POSTGRES_SERVER=postgres
+      - POSTGRES_PORT=5432
       - REDIS_URL=redis://redis:6379/0
-      - RUN_ENV=DEV
+      - RUN_ENV=PRODUCTION
     depends_on:
       postgres:
         condition: service_healthy
@@ -38,24 +40,26 @@ services:
         condition: service_completed_successfully
 
   celery_worker:
-    build: ./backend  # 💡 核心：使用跟上面完全相同的构建上下文和镜像
+    build: ./backend  # 使用跟上面完全相同的构建上下文和镜像
     env_file:
       - .env
     volumes:
       - ./backend/uploads:/app/uploads
       - ./backend/LOGS:/app/LOGS
-    # 💡 核心：用 command 覆盖 Dockerfile 的默认 CMD，改走 Celery 启动命令
-    # 请根据你实际的 tasks 位置修改 -A 后面的路径，-c 2 限制并发为 2（适合 2 核服务器）
+    # 用 command 覆盖 Dockerfile 的默认 CMD，改走 Celery 启动命令
     command: start-worker
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_started
+      prestart:
+        condition: service_completed_successfully
     environment:
-      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/parse_video
+      - POSTGRES_SERVER=postgres
+      - POSTGRES_PORT=5432
       - REDIS_URL=redis://redis:6379/0
-      - RUN_ENV=DEV
+      - RUN_ENV=PRODUCTION
     
 
   frontend:
@@ -74,9 +78,9 @@ services:
   postgres:
     image: postgres:15
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: parse_video
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:

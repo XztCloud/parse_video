@@ -8,7 +8,8 @@ from typing import Annotated, Literal, TypedDict
 from langgraph.types import Command
 from langgraph.graph import END, START, StateGraph
 import pandas as pd
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
+from langchain_core.exceptions import OutputParserException
 from sqlalchemy import delete, select
 from app.models.script import CloneStatus
 
@@ -151,8 +152,69 @@ async def convert_clone_to_md(response: CloneAnalysis, dir_path: str, clone_scri
     return markdown_path_str
 
 
+async def creative_struct_output(analysis_focus, plot_script, clone_theme):
+    from app.services.llm import CREATIVE_SYSTEM_PROMPT, CREATIVE_QUERY_PROMPT, creative_model, creative_model_strict
+    error_message = ''
+    try:
+        query =  CREATIVE_QUERY_PROMPT.format(
+            analysis_focus=analysis_focus,
+            plot_script=plot_script,
+            clone_theme=clone_theme,
+            error_message=''
+        )
+        logger.info(f'query: {query}')
+        messages = [
+            SystemMessage(CREATIVE_SYSTEM_PROMPT),
+            HumanMessage(query)
+        ]
+        response = await creative_model.ainvoke(
+            messages,
+            config={
+                "configurable": {
+                    "temperature":1.0
+                }
+            })
+        return response
+
+    except (ValidationError, OutputParserException) as e:
+        # 🚨 进到这里，说明百分之百是大模型格式崩了 / 吐出的 JSON 畸形
+        logger.error(f"【特定捕获】大模型生成格式错误，无法解析为指定的 Pydantic 模型。错误详情: {e}")
+        
+        # 判定并记录更详细的错误原因
+        if isinstance(e, ValidationError):
+            error_message = "Pydantic 校验失败（可能是大模型漏掉字段、写错类型或JSON截断）"
+            logger.warning("具体原因为：Pydantic 校验失败（可能是大模型漏掉字段、写错类型或JSON截断）")
+        elif isinstance(e, OutputParserException):
+            error_message = "LangChain 解析器崩溃（大模型可能吐出了纯文本或Markdown，压根不是JSON）"
+            logger.warning("具体原因为：LangChain 解析器崩溃（大模型可能吐出了纯文本或Markdown，压根不是JSON）")
+
+    except Exception as e:
+        # 其他异常（比如：OpenAI 接口网络超时、API 余额不足、Key 错了等）
+        logger.error(f"【其他错误】非格式问题导致的常规网络或API异常: {e}")
+        raise e
+    
+    query =  CREATIVE_QUERY_PROMPT.format(
+        analysis_focus=analysis_focus,
+        plot_script=plot_script,
+        clone_theme=clone_theme,
+        error_message=error_message
+    )
+    logger.info(f'strict query: {query}')
+    messages = [
+        SystemMessage(CREATIVE_SYSTEM_PROMPT),
+        HumanMessage(query)
+    ]
+    response = await creative_model_strict.ainvoke(
+        messages,
+        config={
+            "configurable": {
+                "temperature":1.0
+            }
+        })
+    return response
+
 async def creative_plot_background(state: ClonePlotState) -> Command[Literal['process_error', '__end__']]:
-    from app.services.llm import CREATIVE_SYSTEM_PROMPT, CREATIVE_QUERY_PROMPT, creative_model
+    # from app.services.llm import CREATIVE_SYSTEM_PROMPT, CREATIVE_QUERY_PROMPT, creative_model
     async with AsyncSessionLocal() as db:
         try:
             result = await db.execute(select(CloneScript).where(CloneScript.id == state['clone_script_id']))
@@ -161,25 +223,11 @@ async def creative_plot_background(state: ClonePlotState) -> Command[Literal['pr
             dir_path = settings.UPLOAD_DIR + f'/clone_{clone_script.id}'
             make_dir(dir_path)
 
-            query =  CREATIVE_QUERY_PROMPT.format(
+            response = await creative_struct_output(
                 analysis_focus=state['ori_parameters'].get('analysis_focus'),
                 plot_script=state['ori_parameters'].get('plot_script'),
-                clone_theme=clone_script.clone_theme,
-                error_message=''
+                clone_theme=clone_script.clone_theme
             )
-            logger.info(f'query: {query}')
-            messages = [
-                SystemMessage(CREATIVE_SYSTEM_PROMPT),
-                HumanMessage(query)
-            ]
-            response = await creative_model.ainvoke(
-                messages,
-                config={
-                    "configurable": {
-                        "temperature":1.0
-                    }
-                })
-
             response = CloneAnalysis.model_validate(response)
             if not isinstance(response, CloneAnalysis):
                 raise Exception("llm输出格式错误")

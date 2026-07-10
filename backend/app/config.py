@@ -1,6 +1,6 @@
 from typing import Annotated, Any, List
 
-from pydantic import BeforeValidator, computed_field
+from pydantic import BeforeValidator, PostgresDsn, computed_field
 from pydantic_settings import BaseSettings
 
 def parse_cors(v: Any) -> List[str] | str:
@@ -11,15 +11,12 @@ def parse_cors(v: Any) -> List[str] | str:
     raise ValueError(v)
 
 class Settings(BaseSettings):
-    DATABASE_URL: str = "postgresql://postgres:postgres@localhost:5433/parse_video"
-    ASYNC_DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@localhost:5433/parse_vide"
     REDIS_URL: str = "redis://localhost:6380/0"
     UPLOAD_DIR: str = "./uploads"
     MAX_UPLOAD_SIZE: int = 500 * 1024 * 1024
     ALIYUN_ASR_APP_KEY: str = ""
     ALIYUN_ASR_ACCESS_KEY: str = ""
     ALIYUN_ASR_ACCESS_SECRET: str = ""
-    DASHSCOPE_API_KEY: str = ""
     MAX_CONCURRENT_TASKS: int = 3
     BYTEDANCE_APP_ID: str = ""
     BYTEDANCE_TOKEN: str = ""
@@ -57,7 +54,13 @@ class Settings(BaseSettings):
 
     SUPER_ADMINI_EMAIL: str
     SUPER_ADMINI_PASSWORD: str
-    
+
+    POSTGRES_SERVER: str
+    POSTGRES_PORT: int = 5432
+    POSTGRES_USER: str
+    POSTGRES_PASSWORD: str
+    POSTGRES_DB: str
+        
     class Config:
         env_file = "../.env"
 
@@ -65,6 +68,35 @@ class Settings(BaseSettings):
     @property
     def all_cors(self) -> list[str]:
         return [str(s).rstrip('/') for s in self.BACKEND_CORS_ORIGINS] + [self.FRONTEND_HOST]
+    
+    @computed_field
+    @property
+    def is_production(self) -> bool:
+        return self.RUN_ENV == "PRODUCTION"
+
+    @computed_field
+    @property
+    def DATABASE_URL(self) -> PostgresDsn:
+        return PostgresDsn.build(
+            scheme="postgresql",
+            username=self.POSTGRES_USER,
+            password=self.POSTGRES_PASSWORD,
+            host=self.POSTGRES_SERVER,
+            port=self.POSTGRES_PORT,
+            path=self.POSTGRES_DB,
+        )
+    
+    @computed_field
+    @property
+    def ASYNC_DATABASE_URL(self) -> PostgresDsn:
+        return PostgresDsn.build(
+            scheme="postgresql+asyncpg",
+            username=self.POSTGRES_USER,
+            password=self.POSTGRES_PASSWORD,
+            host=self.POSTGRES_SERVER,
+            port=self.POSTGRES_PORT,
+            path=self.POSTGRES_DB,
+        )
 
 
 settings = Settings()

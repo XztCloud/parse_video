@@ -41,7 +41,7 @@ class PredictVoiceDuration:
                     .statement
                 )
                 raw_sql = str(stmt.compile(compile_kwargs={"literal_binds": True}))
-                conn = psycopg2.connect(settings.DATABASE_URL)
+                conn = psycopg2.connect(str(settings.DATABASE_URL))
 
                 try:
                     # 3. 把原生连接传给 pandas
