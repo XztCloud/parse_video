@@ -13,7 +13,7 @@ from app.util import logger
 router = APIRouter(prefix="/scripts", tags=["scripts"])
 
 @router.get("/{video_id}")
-async def get_script(video_id: int, db: SessionDep, user: CurrentUser):
+async def get_script(video_id: int, db: SessionDep):
     try:
         script = db.query(Script).filter(Script.video_id == video_id).first()
         if not script:

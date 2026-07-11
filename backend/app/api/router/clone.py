@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 
@@ -13,6 +13,7 @@ from app.models.script import CloneImage, CloneVoice, CloneScript, CloneScriptSe
 from app.tasks.parse_video import clone_video_task
 from app.util import logger
 from app.api.deps import SessionDep
+from app.api.deps import limiter
 
 
 class ClonePlotRequest(BaseModel):
@@ -23,37 +24,42 @@ class ClonePlotRequest(BaseModel):
     product: Optional[str] = Field(description="带货商品 可以不填")
     product_desc: Optional[str] = Field(alias="productDesc", description="商品介绍")
 
-class CloneVoiceRequest(BaseModel):
+class CloneRequestBase(BaseModel):
     clone_script_id: int = Field(..., alias="cloneScriptId")
     auto_run: bool = Field(default=False,  alias="autoRun", description="自动进入下一阶段")
 
-class CloneStoryboardRequest(BaseModel):
-    clone_script_id: int = Field(..., alias="cloneScriptId")
-    auto_run: bool = Field(default=False, alias="autoRun", description="自动进入下一阶段")
+class ReClonePlotRequest(CloneRequestBase):
+    pass
 
-class CloneImageRequest(BaseModel):
-    clone_script_id: int = Field(..., alias="cloneScriptId")
-    auto_run: bool = Field(default=False,  alias="autoRun", description="自动进入下一阶段")
+class CloneVoiceRequest(CloneRequestBase):
+    pass
+
+class CloneStoryboardRequest(CloneRequestBase):
+    pass
+
+class CloneImageRequest(CloneRequestBase):
+    pass
 
 router = APIRouter(prefix="/clone", tags=["clone"])
 
 
 @router.post("/plot")
-async def clone_plot(request: ClonePlotRequest, db: SessionDep):
+@limiter.limit("1/5second")
+async def clone_plot(request: Request, request_data: ClonePlotRequest, db: SessionDep):
     try:
-        logger.info(f'receive clone_plot post. auto run is {request.auto_run}')
-        script = db.query(Script).filter(Script.video_id == request.video_id).first()
+        logger.info(f'receive clone_plot post. auto run is {request_data.auto_run}')
+        script = db.query(Script).filter(Script.video_id == request_data.video_id).first()
         if not script:
             raise HTTPException(status_code=404, detail="原视频脚本不存在")
         
-        full_data = request.model_dump(exclude_none=True, by_alias=False)
+        full_data = request_data.model_dump(exclude_none=True, by_alias=False)
 
         target_keys = {"style", "product", "product_desc"}
         filtered_dict = {k: v for k, v in full_data.items() if k in target_keys}
         clone_requirements = filtered_dict if filtered_dict is not None else None
         kwags = {
             "script_id": script.id,
-            "clone_theme": request.clone_theme,
+            "clone_theme": request_data.clone_theme,
             "clone_status": CloneStatus.PLOT.value,
             "clone_progress": 0
         }
@@ -66,12 +72,42 @@ async def clone_plot(request: ClonePlotRequest, db: SessionDep):
         db.commit()
         db.refresh(clone_script)
 
+        clone_video_task.delay(clone_script.id, 1, request_data.auto_run)
+        return {"id": clone_script.id, "theme": request_data.clone_theme, "status": clone_script.clone_status, "progress": clone_script.clone_progress}
+    except Exception as e:
+        print(f"复刻失败: {str(e)}")
+        raise HTTPException(status_code=400, detail=f"复刻失败: {str(e)}")
+
+@router.post("/re_plot")
+async def re_clone_plot(request: ReClonePlotRequest, db: SessionDep):
+    try:
+        logger.info(f'receive clone_plot post. auto run is {request.auto_run}')
+        # 乐观锁  对比 .with_for_update().first() 悲观锁
+        affected_rows = db.query(CloneScript).filter( 
+            CloneScript.id == request.clone_script_id, 
+            CloneScript.clone_status == CloneStatus.PLOT_DONE
+            ).update({
+                "clone_status": CloneStatus.PLOT,
+                "clone_progress": 0,
+                "clone_error_message": None,
+                "clone_parse_pointer": None,
+                "clone_parse_file_path": None
+            })
+        db.commit()
+        if affected_rows == 0:
+            raise HTTPException(status_code=404, detail="复刻任务已在运行或状态不正确")
+        
+        clone_script = db.query(CloneScript).filter(
+            CloneScript.id == request.clone_script_id
+        ).first()
+        if not clone_script:
+            raise HTTPException(status_code=404, detail="复刻视频脚本不存在，请先生成视频脚本")
+
         clone_video_task.delay(clone_script.id, 1, request.auto_run)
         return {"id": clone_script.id, "theme": request.clone_theme, "status": clone_script.clone_status, "progress": clone_script.clone_progress}
     except Exception as e:
         print(f"复刻失败: {str(e)}")
         raise HTTPException(status_code=400, detail=f"复刻失败: {str(e)}")
-    
 
 @router.get("/{clone_script_id}/status")
 async def get_clone_status(clone_script_id: int, db: SessionDep):
@@ -192,7 +228,8 @@ async def get_clone_scirpt(clone_script_id: int, db: SessionDep):
                     "role_name": img.role_name,
                     "width": img.width,
                     "height": img.height,
-                    "desc": img.desc
+                    "desc": img.desc,
+                    "prompt": img.prompt,
                 }
                 for img in images
             ],
@@ -284,15 +321,23 @@ async def export_image(image_id: int, db: SessionDep):
 @router.post("/voices")
 async def clone_voices(request: CloneStoryboardRequest, db: SessionDep):
     try:
+        affected_rows = db.query(CloneScript).filter( 
+            CloneScript.id == request.clone_script_id, 
+            CloneScript.clone_status.in_([CloneStatus.PLOT_DONE, CloneStatus.VOICE_DONE])
+            ).update({
+                "clone_status": CloneStatus.VOICE,
+                "clone_progress": 21,
+                "clone_error_message": None
+            })
+        db.commit()
+        if affected_rows == 0:
+            raise HTTPException(status_code=404, detail="任务已在运行或状态不正确")
+
+
         clone_script = db.query(CloneScript).filter(CloneScript.id == request.clone_script_id).first()
         if not clone_script:
             raise HTTPException(status_code=404, detail="复刻视频脚本不存在，请先生成视频脚本")
 
-        if clone_script.clone_status in list(CloneStatus)[:2] or \
-            clone_script.clone_status == CloneStatus.FAILED and clone_script.clone_progress < 20:
-            raise HTTPException(status_code=400, detail=f"脚本复刻未完成，待完成后再重新生成分镜")
-        clone_script.clone_status = CloneStatus.VOICE
-        db.commit()
         clone_video_task.delay(clone_script.id, 2, request.auto_run)
         return {"id": clone_script.id, "status": clone_script.clone_status, "progress": clone_script.clone_progress}
     except HTTPException as e:
@@ -305,15 +350,22 @@ async def clone_voices(request: CloneStoryboardRequest, db: SessionDep):
 async def clone_segments(request: CloneStoryboardRequest, db: SessionDep):
     try:
 
+        affected_rows = db.query(CloneScript).filter( 
+            CloneScript.id == request.clone_script_id, 
+            CloneScript.clone_status.in_([CloneStatus.PLOT_DONE, CloneStatus.VOICE_DONE, CloneStatus.SEGMENTS_DONE])
+            ).update({
+                "clone_status": CloneStatus.SEGMENTS,
+                "clone_progress": 31,
+                "clone_error_message": None
+            })
+        db.commit()
+        if affected_rows == 0:
+            raise HTTPException(status_code=404, detail="任务已在运行或状态不正确")
+
         clone_script = db.query(CloneScript).filter(CloneScript.id == request.clone_script_id).first()
         if not clone_script:
             raise HTTPException(status_code=404, detail="复刻视频脚本不存在，请先生成视频脚本")
 
-        if clone_script.clone_status in list(CloneStatus)[:2] or \
-            clone_script.clone_status == CloneStatus.FAILED and clone_script.clone_progress < 20:
-            raise HTTPException(status_code=400, detail=f"脚本复刻未完成，待完成后再重新生成分镜")
-        clone_script.clone_status = CloneStatus.SEGMENTS
-        db.commit()
         clone_video_task.delay(clone_script.id, 3, request.auto_run)
         return {"id": clone_script.id, "status": clone_script.clone_status, "progress": clone_script.clone_progress}
     except Exception as e:
@@ -323,15 +375,22 @@ async def clone_segments(request: CloneStoryboardRequest, db: SessionDep):
 @router.post("/images")
 async def clone_segments(request: CloneStoryboardRequest, db: SessionDep):
     try:
+        affected_rows = db.query(CloneScript).filter( 
+            CloneScript.id == request.clone_script_id, 
+            CloneScript.clone_status.in_([CloneStatus.SEGMENTS_DONE, CloneStatus.IMAGE_DONE])
+            ).update({
+                "clone_status": CloneStatus.IMAGE,
+                "clone_progress": 31,
+                "clone_error_message": None
+            })
+        db.commit()
+        if affected_rows == 0:
+            raise HTTPException(status_code=404, detail="任务已在运行或状态不正确")
+        
         clone_script = db.query(CloneScript).filter(CloneScript.id == request.clone_script_id).first()
         if not clone_script:
             raise HTTPException(status_code=404, detail="复刻视频脚本不存在，请先生成视频脚本")
 
-        if clone_script.clone_status in list(CloneStatus)[:2] or \
-            clone_script.clone_status == CloneStatus.FAILED and clone_script.clone_progress < 20:
-            raise HTTPException(status_code=400, detail=f"脚本复刻未完成，待完成后再重新生成分镜")
-        clone_script.clone_status = CloneStatus.IMAGE
-        db.commit()
         clone_video_task.delay(clone_script.id, 4, request.auto_run)
         return {"id": clone_script.id, "status": clone_script.clone_status, "progress": clone_script.clone_progress}
 

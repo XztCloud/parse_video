@@ -138,7 +138,7 @@ async def preload_lines_voices(state: CloneVoiceState, config: RunnableConfig):
             save_dir=save_dir
         )
 
-        clone_script.clone_progress = 21
+        clone_script.clone_progress = 22
         await db.commit() 
 
         logger.info(f'voice_seek_info is {voice_seek_info.model_dump_json()}')

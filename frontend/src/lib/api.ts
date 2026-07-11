@@ -71,6 +71,7 @@ export interface CloneImage {
   width: number;
   height: number;
   desc: string | null;
+  prompt: string | null;
 }
 
 export interface ScriptResponse {
@@ -200,6 +201,11 @@ export const exportScript = async (videoId: number): Promise<Blob> => {
 
 export const clonePlot = async (cloneRequest: ClonePlotRequest): Promise<ClonePlotResponse> => {
   const response = await api.post<ClonePlotResponse>(`${API_PREFIX}/clone/plot`, cloneRequest);
+  return response.data;
+};
+
+export const reClonePlot = async (cloneScriptId: number, autoRun: boolean=false): Promise<ClonePlotResponse> => {
+  const response = await api.post<ClonePlotResponse>(`${API_PREFIX}/clone/re_plot`, {cloneScriptId, autoRun});
   return response.data;
 };
 

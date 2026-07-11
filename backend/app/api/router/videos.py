@@ -1,7 +1,6 @@
-from multiprocessing import Semaphore
 import asyncio
 import os, uuid
-from fastapi import APIRouter, UploadFile, File, HTTPException
+from fastapi import APIRouter, Depends, Request, UploadFile, File, HTTPException
 from pydantic import BaseModel
 
 from app.api.deps import SessionDep
@@ -11,26 +10,16 @@ from ...config import settings
 from ...tasks.parse_video import parse_video_task
 from ...services.douyin_parser import DouyinParser
 from app.util import logger
+from app.api.deps import limiter
 
 router = APIRouter(prefix="/videos", tags=["videos"])
 
 class DouyinRequest(BaseModel):
     url: str
 
-# 单机多进程
-MAX_CONCURRENT = 5
-# 初始化一个跨进程的信号量
-process_semaphore = Semaphore(MAX_CONCURRENT)
-
-def acquire_lock():
-    # 这是一个阻塞操作，必须在独立线程中运行，否则会卡死 asyncio 事件循环
-    process_semaphore.acquire()
-
-def release_lock():
-    process_semaphore.release()
-
 @router.post("/upload")
-async def upload_video(db: SessionDep, file: UploadFile = File(...)):
+@limiter.limit("1/5second")
+async def upload_video(request: Request, db: SessionDep, file: UploadFile = File(...)):
     if not file.filename.lower().endswith((".mp4", ".mov", ".avi", ".mkv")):
         raise HTTPException(status_code=400, detail="不支持的视频格式")
     os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
@@ -54,11 +43,11 @@ async def upload_video(db: SessionDep, file: UploadFile = File(...)):
 
 
 @router.post("/douyin")
-async def parse_douyin(request: DouyinRequest, db: SessionDep):
-    await asyncio.to_thread(acquire_lock)
+@limiter.limit("1/5second")
+async def parse_douyin(request: Request, request_data: DouyinRequest, db: SessionDep):
     try:
-        print(f'receive url:{request.url}')
-        file_path, title = await asyncio.to_thread(DouyinParser.download_video, request.url)
+        print(f'receive url:{request_data.url}')
+        file_path, title = await asyncio.to_thread(DouyinParser.download_video, request_data.url)
         print(f'file_path:{file_path}, title:{title}')
 
         video = Video(
@@ -67,7 +56,7 @@ async def parse_douyin(request: DouyinRequest, db: SessionDep):
             status=VideoStatus.PENDING,
             progress=0,
             source_type=VideoSource.DOUYIN,
-            source_url=request.url
+            source_url=request_data.url
         )
         db.add(video)
         db.commit()
@@ -77,8 +66,6 @@ async def parse_douyin(request: DouyinRequest, db: SessionDep):
 
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"抖音链接解析失败: {str(e)}")
-    finally:
-        await asyncio.to_thread(release_lock)
 
 @router.get("")
 async def list_videos(db: SessionDep, skip: int = 0, limit: int = 20):

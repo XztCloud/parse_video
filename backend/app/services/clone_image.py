@@ -199,7 +199,8 @@ async def initial_role_images(state: CloneImageState) -> Command[Literal['initia
                     width=image_info['width'],
                     height=image_info['height'],
                     path=str(image_path.absolute()),
-                    desc='portrait'
+                    desc='portrait',
+                    prompt=character.visual_anchor_prompt
                 )
                 db.add(clone_image)
 

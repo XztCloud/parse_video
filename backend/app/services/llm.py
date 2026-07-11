@@ -278,7 +278,8 @@ class CharacterAsset(BaseModel):
 
     visual_anchor_prompt: Optional[str] = Field(
         default=None,
-        description="用于控制 Midjourney/Flux 生成一致性长相的英文定妆照提示词。必须是单人、正脸、干净背景的高清半身肖像描述。如果不出镜，则不填。"
+        description="用于控制模型生成一致性长相的英文定妆照提示词。必须是单人、正脸、干净背景的高清半身肖像描述。如果不出镜，则不填。例如：" \
+        "Photorealistic, ultra-detailed close-up portrait of a woman with long wavy brown hair tied neatly back, wearing rimless clear-lensed glasses with a sophisticated silver rim. She has a subtle blue rose hair clip in her hair with a small navy ribbon, and a delicate silver necklace with a heart-shaped turquoise pendant. The background is pure white, and the soft, warm professional lighting creates a focused and professional atmosphere. The composition is a standard head-and-shoulders ID photo style, with a shallow depth of field. Emphasis is placed on the neat hair texture, reflective glass surfaces, healthy skin tone, and the delicate jewelry details. The overall style is business-oriented and professional, with a confident and focused mood."
     )
 
 class CharacterManifest(BaseModel):

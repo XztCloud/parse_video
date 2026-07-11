@@ -170,18 +170,6 @@ export default function ClonePage() {
           </div>
         </div>
       </header>
-
-      {/* <header className="bg-white shadow-sm">
-        <div className="max-w-5xl mx-auto px-6 py-4">
-          <button
-            onClick={() => router.back()}
-            className="text-blue-500 hover:text-blue-600 text-sm"
-          >
-            ← 返回
-          </button>
-          <h1 className="text-2xl font-bold text-gray-900 mt-2"> 复刻详情</h1>
-        </div>
-      </header> */}
       <div className="max-w-5xl mx-auto px-6 py-8">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="lg:col-span-3">

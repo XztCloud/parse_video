@@ -98,7 +98,10 @@ def parse_video_task(self, video_id: int):
     finally:
         db.close()
 
+loop = asyncio.new_event_loop()
+asyncio.set_event_loop(loop)
 
 @celery_app.task(bind=True)
 def clone_video_task(self, clone_script_id: int, step: int=1, auto_run: bool=False):
-    asyncio.run(begin_clone(clone_script_id, step=step, auto_run=auto_run))
+    loop.run_until_complete(begin_clone(clone_script_id, step=step, auto_run=auto_run))
+    # asyncio.run(begin_clone(clone_script_id, step=step, auto_run=auto_run))

@@ -99,6 +99,7 @@ class CloneImage(Base):
     width = Column(Integer, nullable=False)
     height = Column(Integer, nullable=False)
     path = Column(String(256), nullable=False)
+    prompt = Column(Text, nullable=True)
     desc = Column(String(128), nullable=True)
     clone_script = relationship("CloneScript", back_populates="clone_images")
     created_at = Column(DateTime, default=datetime.utcnow)

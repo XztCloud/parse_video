@@ -4,6 +4,7 @@ from fastapi import Cookie, Depends, HTTPException, Header, Request, status
 from fastapi.security import OAuth2PasswordBearer
 import jwt
 from pydantic import ValidationError
+from slowapi import Limiter
 from app.database import AsyncSessionLocal, SessionLocal
 from sqlalchemy.orm import Session
 from fastapi import Depends, HTTPException
@@ -53,7 +54,7 @@ async def get_token(
 
 TokenDep = Annotated[str, Depends(get_token)]
 
-async def get_current_user(session: SessionDep, token: TokenDep) -> User:
+async def get_current_user(request: Request, session: SessionDep, token: TokenDep) -> User:
     try:
         payload = jwt.decode(
             token, settings.SECRET_KEY, algorithms=[ALGORITHM]
@@ -67,7 +68,31 @@ async def get_current_user(session: SessionDep, token: TokenDep) -> User:
     user = session.get(User, token_data.sub)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
+    request.state.user_id=user.id
     return user
 
-
 CurrentUser = Annotated[User, Depends(get_current_user)]
+
+
+def get_token_from_request(request: Request) -> str | None:
+    authorization = request.headers.get("Authorization")
+    if authorization:
+        scheme, _, credentials = authorization.partition(" ")
+        if scheme.lower() == "bearer":
+            return credentials
+
+    token = request.cookies.get("access_token")
+    if token and token.startswith("Bearer "):
+        token = token[7:]
+
+    return token
+
+def user_id_identifier(request: Request) -> str:
+    user_id = request.state.user_id
+    print(f'get user_id_identifier: {user_id}')
+    if user_id:
+        return f"user:{user_id}:{request.url.path}"
+    return f"ip:{request.client.host}:{request.url.path}"
+
+
+limiter = Limiter(key_func=user_id_identifier, storage_uri=settings.REDIS_URL)

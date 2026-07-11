@@ -9,6 +9,7 @@ import {
   cloneVoices,
   getCloneStatus,
   getVideoStatus,
+  reClonePlot,
   VideoStatusResponse,
 } from "@/lib/api";
 import { stat } from "fs";
@@ -25,8 +26,8 @@ export default function CloneProgress({
 }: CloneProgressProps) {
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<CloneStatusResponse | null>(null);
-  const [prevStatus, setPrevStatus] = useState<string|null>(null);
-  const [autoRun, setAutoRun] = useState<boolean>(false)
+  const [prevStatus, setPrevStatus] = useState<string | null>(null);
+  const [autoRun, setAutoRun] = useState<boolean>(false);
 
   const timerRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -34,22 +35,22 @@ export default function CloneProgress({
     setAutoRun(e.target.checked); // e.target.checked 会自动返回 true 或 false
   };
 
-  const continueClone = async(clone_status: string) => {
+  const continueClone = async (clone_status: string) => {
     try {
-      if (clone_status === "PLOT_DONE") {
-        const data = await cloneVoices(cloneId, autoRun)
-        console.log('cloneVoices response is', data)
+      if (clone_status === "PENDING") {
+        const data = await reClonePlot(cloneId, autoRun);
+        console.log("reClonePlot response is", data);
       }
-      else if (clone_status === "VOICE_DONE") {
-        const data = await cloneSegments(cloneId, autoRun)
-        console.log('cloneSegments response is', data)
+      else if (clone_status === "PLOT_DONE") {
+        const data = await cloneVoices(cloneId, autoRun);
+        console.log("cloneVoices response is", data);
+      } else if (clone_status === "VOICE_DONE") {
+        const data = await cloneSegments(cloneId, autoRun);
+        console.log("cloneSegments response is", data);
+      } else if (clone_status === "SEGMENTS_DONE") {
+        const data = await cloneImages(cloneId, autoRun);
+        console.log("cloneSegments response is", data);
       }
-      else if (clone_status === "SEGMENTS_DONE") {
-        const data = await cloneImages(cloneId, autoRun)
-        console.log('cloneSegments response is', data)
-      }
-      
-      
     } catch (err: any) {
       setError(err.response?.data?.detail || "失败");
     }
@@ -60,7 +61,7 @@ export default function CloneProgress({
       const data = await getCloneStatus(cloneId);
       console.log(`clone status: ${data.clone_progress}, status: ${data.clone_status}, prevStatus: ${prevStatus}`)
       setStatus(data);
-      
+
 
       if (prevStatus !== data.clone_status && 
         data.clone_status === CloneStatus.PLOT_DONE) {
@@ -97,7 +98,6 @@ export default function CloneProgress({
         return;
       }
       // console.log(`prevStatus: ${prevStatus}, cone_status: ${data.clone_status}`)
-      
     } catch (err: any) {
       setError(err.response?.data?.detail || "获取状态失败");
     }
@@ -105,11 +105,71 @@ export default function CloneProgress({
 
   useEffect(() => {
     fetchStatus();
-    timerRef.current =setInterval(fetchStatus, 2000);
+    timerRef.current = setInterval(fetchStatus, 2000);
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
-    }
+    };
   }, [fetchStatus]);
+
+  const canContinue =
+    status &&
+    (status.clone_status === "PLOT_DONE" ||
+      status.clone_status === "VOICE_DONE" ||
+      status.clone_status === "SEGMENTS_DONE" ||
+      status.clone_status === "IMAGE_DONE");
+
+  const canRetry =
+    status &&
+    (status.clone_status === "PLOT_DONE" ||
+      status.clone_status === "VOICE_DONE" ||
+      status.clone_status === "SEGMENTS_DONE" ||
+      status.clone_status === "IMAGE_DONE" ||
+      status.clone_status === "DONE");
+
+  const canSkip =
+    status &&
+    (status.clone_status === "PLOT_DONE" ||
+      status.clone_status === "SEGMENTS_DONE");
+
+  const statusTextMap: Record<string, string> = {
+    PENDING: "等待处理",
+    PLOT: "复刻剧本中",
+    PLOT_DONE: "复刻剧本完成",
+    VOICE: "生成音频中",
+    VOICE_DONE: "生成音频完成",
+    SEGMENTS: "复刻分镜中",
+    SEGMENTS_DONE: "复刻分镜完成",
+    IMAGE: "生成图片中",
+    IMAGE_DONE: "生成图片完成",
+    VIDEO: "制作视频中",
+    DONE: "处理完成",
+    FAILED: "处理失败",
+  };
+
+  const statusText = status
+    ? (statusTextMap[status.clone_status] ?? "未知状态")
+    : "";
+
+  const statusSkipMap: Record<string, string> = {
+    PLOT_DONE: "VOICE_DONE",
+    SEGMENTS_DONE: "IMAGE_DONE",
+  };
+
+  const skipStatus = status
+    ? (statusSkipMap[status.clone_status] ?? "未知状态")
+    : "";
+
+  const statusRetryMap: Record<string, string> = {
+    PLOT_DONE: "PENDING",
+    VOICE_DONE: "PLOT_DONE",
+    SEGMENTS_DONE: "VOICE_DONE",
+    IMAGE_DONE: "SEGMENTS_DONE",
+    DONE: "IMAGE_DONE"
+  }
+
+  const retryStatus = status
+    ? (statusRetryMap[status.clone_status] ?? "未知状态")
+    : "";
 
   if (error) {
     return <div className="text-red-500 text-center">{error}</div>;
@@ -120,81 +180,80 @@ export default function CloneProgress({
   }
 
   return (
-    <div className="w-full max-w-2xl mx-auto">
-      <div className="mb-4">
-        <div className="text-sm text-gray-500 mb-1">处理进度</div>
-        <div className="w-full bg-gray-200 rounded-full h-2.5">
-          <div
-            className="bg-blue-600 h-2.5 rounded-full transition-all duration-300"
-            style={{ width: `${status.clone_progress}%` }}
-            // style={{ width: "0%" }}
-          ></div>
-        </div>
-        <div className="text-right text-sm text-gray-500 mt-1">
-          {status.clone_progress}%
-        </div>
-      </div>
-      <div className="flex w-full items-center border gap-4  p-4">
-        <div className="text-right w-3/5  text-gray-500">
-          状态: {status.clone_status === "PENDING" && "等待处理"}
-          {status.clone_status === "PLOT" && "复刻剧本中"}
-          {status.clone_status === "PLOT_DONE" && "复刻剧本完成"}
-          {status.clone_status === "VOICE" && "生成音频中"}
-          {status.clone_status === "VOICE_DONE" && "生成音频完成"}
-          {status.clone_status === "SEGMENTS" && "复刻分镜中"}
-          {status.clone_status === "SEGMENTS_DONE" && "复刻分镜完成"}
-          {status.clone_status === "IMAGE" && "生成图片中"}
-          {status.clone_status === "IMAGE_DONE" && "生成图片完成"}
-          {status.clone_status === "VIDEO" && "制作视频中"}
-          {status.clone_status === "DONE" && "处理完成"}
-          {status.clone_status === "FAILED" && "处理失败"}
-        </div>
-        <div className="w-2/5 p-4 text-left flex items-center">
-        {
-          (status.clone_status === "PLOT_DONE" || status.clone_status === "VOICE_DONE" ||
-            status.clone_status === "SEGMENTS_DONE" || status.clone_status === "IMAGE_DONE") && (
-            <div  className="w-full flex items-center gap-1">
-              <button className="w-1/3 px-2.5 py-1  rounded-lg bg-blue-500 hover:bg-blue-600 transition-colors"
-              onClick={() => continueClone(status.clone_status)}>
-                继续
-              </button>
-              {
-                status.clone_status === "PLOT_DONE" && (
-                  <button className="w-1/3 px-2.5 py-1  rounded-lg bg-blue-500 hover:bg-blue-600 transition-colors"
-                  onClick={() => continueClone("VOICE_DONE")}>
-                    跳过
-                  </button>
-                )
-              }
-              {
-                status.clone_status === "SEGMENTS_DONE" && (
-                  <button className="w-1/3 px-2.5 py-1  rounded-lg bg-blue-500 hover:bg-blue-600 transition-colors"
-                  onClick={() => continueClone("IMAGE_DONE")}>
-                    跳过
-                  </button>
-                )
-              }
-              <label className="w-1/3  inline-flex items-center justify-center mx-2 px-2 py-2">
-        
-                {/* 3. 原生方框复选框 */}
-                <input
-                  type="checkbox"
-                  checked={autoRun}
-                  onChange={handleCheckboxChange}
-                  // Tailwind 样式：rounded-md 是方角（带一点点圆润），text-blue-600 是选中后的对勾颜色
-                  className="w-5 h-5 m-0 self-center rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
-                />
+    <div className="w-full mx-auto">
+      <div className="rounded-2xl  shadow-sm p-6">
+        {/* Header */}
+        <div className="flex justify-between items-center mb-4">
+          <div>
+            <h3 className="text-xl font-semibold text-gray-900">
+              视频复刻任务
+            </h3>
 
-                {/* 4. 文本说明 */}
-                <span className="px-1 text-s font-medium text-gray-500 whitespace-nowrap">
-                  自动执行
-                </span>
-              </label>
-            </div>
-          )
-        }
+            <p className="text-sm text-gray-500 mt-1">
+              当前状态：
+              <span className="ml-1 font-medium text-blue-600">
+                {statusText}
+              </span>
+            </p>
+          </div>
+
+          <div className="text-2xl font-bold text-blue-600">
+            {status.clone_progress}%
+          </div>
         </div>
-        
+
+        {/* Progress */}
+        <div className="w-full h-3 rounded-full bg-gray-100 overflow-hidden">
+          <div
+            className="h-full rounded-full bg-gradient-to-r from-blue-500 to-cyan-500 transition-all duration-500"
+            style={{
+              width: `${status.clone_progress}%`,
+            }}
+          />
+        </div>
+
+        {/* Bottom */}
+        <div className="mt-6 flex flex-wrap items-center justify-between gap-4">
+          <div className="flex gap-2">
+            {canContinue && (
+              <button
+                onClick={() => continueClone(status.clone_status)}
+                className="px-4 rounded-xl bg-blue-500 text-white hover:bg-blue-600 transition"
+              >
+                ▶ 继续
+              </button>
+            )}
+
+            {canRetry && (
+              <button
+                className="px-5 py-2 rounded-xl border border-yellow-400 bg-yellow-50 text-yellow-700 hover:bg-yellow-100 transition"
+                onClick={() => continueClone(retryStatus)}
+              >
+                ↻ 重试
+              </button>
+            )}
+
+            {canSkip && (
+              <button
+                className="px-5 py-2 rounded-xl border text-gray-700 border-gray-300 hover:bg-gray-100 transition"
+                onClick={() => continueClone(skipStatus)}
+              >
+                ⏭ 跳过
+              </button>
+            )}
+          </div>
+
+          <label className="flex items-center gap-2 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={autoRun}
+              onChange={handleCheckboxChange}
+              className="w-5 h-5 accent-blue-600"
+            />
+
+            <span className="text-sm text-gray-600">自动执行下一步</span>
+          </label>
+        </div>
       </div>
     </div>
   );

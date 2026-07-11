@@ -11,7 +11,9 @@ from app.util import get_env_value, configure_logging, logger
 from .config import settings
 import os
 from app.api.router_main import api_router, authenticated_router
-
+from slowapi import  _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from app.api.deps import limiter
 
 app = FastAPI(title="视频脚本解析平台", version="1.0.0")
 
@@ -71,7 +73,9 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
-        
+    
+    app.state.limiter = limiter
+    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
     app.include_router(api_router, prefix='/api/v1')
     app.include_router(authenticated_router, prefix='/api/v1')

@@ -18,7 +18,6 @@ def file_to_base64(file_path):
 
 def submit_task(file_path, appid, token):
 
-    #submit_url = "https://openspeech.bytedance.com/api/v3/auc/bigmodel/submit"
     submit_url = "https://openspeech-direct.zijieapi.com/api/v3/auc/bigmodel/submit"
 
     task_id = str(uuid.uuid4())

@@ -11,9 +11,9 @@ RUN sed -i 's/URIs: http:\/\/deb.debian.org/URIs: http:\/\/mirrors.aliyun.com/g'
     apt-get install -y ffmpeg && \
     rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt .
+# COPY requirements.txt .
 
-RUN pip install --no-cache-dir -r requirements.txt -i https://mirrors.aliyun.com/pypi/simple/
+# RUN pip install --no-cache-dir -r requirements.txt -i https://mirrors.aliyun.com/pypi/simple/
 
 
 COPY . .

@@ -38,18 +38,27 @@ export default function ImageList({ images }: ScriptImageProps) {
               </div>
 
               {/* 缩略图容器 */}
-              <div 
-                className="flex items-center justify-start overflow-hidden cursor-pointer "
-                style={{ width: 500, height: 300 }} // 容器固定为 max_len 的正方形
-                onClick={() => setIsOpen(true)}
-              >
-                <img
-                  src={getImageUrl(image.id)}
-                  alt={`图片`}
-                  // max-w-full 和 max-h-full 确保图片不超出容器
-                  // object-contain 保持宽高比
-                  className="max-w-full max-h-full object-contain transition-transform duration-200 hover:scale-105"
-                />
+              <div className="flex justify-between items-center">
+                <div className="basis-1/2 items-center">
+                 
+                    <p className="text-gray-700 mb-1">
+                      {image.prompt}
+                    </p>
+                  
+                </div>
+                <div 
+                  className="flex items-center basis-1/2  justify-start overflow-hidden cursor-pointer "
+                  style={{ width: 500, height: 300 }} // 容器固定为 max_len 的正方形
+                  onClick={() => setIsOpen(true)}
+                >
+                  <img
+                    src={getImageUrl(image.id)}
+                    alt={`图片`}
+                    // max-w-full 和 max-h-full 确保图片不超出容器
+                    // object-contain 保持宽高比
+                    className="max-w-full max-h-full object-contain transition-transform duration-200 hover:scale-105"
+                  />
+                </div>
               </div>
 
               {/* 点击弹出的原图模态框 (Modal) */}

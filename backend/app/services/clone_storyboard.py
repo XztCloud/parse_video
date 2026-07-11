@@ -81,7 +81,7 @@ async def generate_storyboard(state: CloneStoryboardState):
 
         await db.execute(delete(CloneScriptSegment).where(CloneScriptSegment.script_id == state['clone_script_id']))
 
-        clone_script.clone_progress = 31
+        clone_script.clone_progress = 32
         await db.commit()
 
 
