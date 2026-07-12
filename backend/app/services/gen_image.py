@@ -1,7 +1,9 @@
+from datetime import datetime
 import enum
 
 from pathlib import Path
-from typing import List, Optional
+import random
+from typing import List, Literal, Optional
 from pydantic import BaseModel, Field
 import requests
 from app.config import settings
@@ -11,10 +13,16 @@ from app.util import retry_on_httpx_error
 
 from celery.utils.log import get_task_logger
 
+from app.services.comfy.api_comfy import ApiComfy
+from app.services.comfy.wrap_comfy import WrapComfy
+
 
 logger = get_task_logger(__name__)
 
 class ImageSize(enum.Enum):
+    SIZE_512x512 = "512x512"
+    SIZE_512x640 = "512x640"
+
     SIZE_1024x1024 = "1024x1024"
     SIZE_960x1280  = "960x1280"
     SIZE_768x1024  = "768x1024"
@@ -28,6 +36,19 @@ class ImageSize(enum.Enum):
     SIZE_1140x1472 = "1140x1472"
     SIZE_1584x1056 = "1584x1056"
     SIZE_1056x1584 = "1056x1584"
+
+    @property
+    def dimensions(self) -> tuple[int, int]:
+        w, h = self.value.split('x')
+        return int(w), int(h)
+    
+    @property
+    def width(self) -> int:
+        return self.dimensions[0]
+    
+    @property
+    def height(self) -> int:
+        return self.dimensions[1]
 
 class GenImageParams(BaseModel):
     prompt: str = Field(
@@ -127,7 +148,7 @@ class GenImage:
         return file_path
 
     async def gen_image(self,  gen_image_params: GenImageParams, save_dir:str|Path, prefix:str) -> list[Path]:
-        
+        gen_image_params.seed= random.randint(1000000000, 9999999999)
         image_info = await self._request_generate(gen_image_params=gen_image_params)
         images_path = []
         for i, image_info in enumerate(image_info['images']):
@@ -138,6 +159,45 @@ class GenImage:
             images_path.append(img_path)
         return images_path
 
+
+    async def gen_image_local(self, img_type: Literal['male', 'female', 'scene'], gen_image_params: GenImageParams, save_dir:str|Path, prefix:str) -> list[Path]:
+        gen_image_params.seed= random.randint(100000000000000, 999999999999999)
+        positive_prompt = gen_image_params.prompt
+        negative_prompt = gen_image_params.negative_prompt
+        api = ApiComfy()
+        if img_type in ['male', 'female']:
+            wf = WrapComfy("app/services/comfy/resource/workflow/generate_portrait.json")
+
+        logger.info(f'gen_image_local img_type:{img_type}, seed:{gen_image_params.seed}')
+
+        wf.set_node_param("空Latent图像", "height", gen_image_params.image_size.height)
+        wf.set_node_param("空Latent图像", "width", gen_image_params.image_size.width)
+
+        wf.set_node_param("CLIP Text Encode (Positive Prompt)", "text", positive_prompt)
+        if negative_prompt:
+            wf.set_node_param("CLIP Text Encode (Negative Prompt)", "text", negative_prompt)
+
+        if img_type == 'male':
+            wf.set_node_param("加载图像", "image", "male_portrait.png")
+        elif img_type == 'female':
+            wf.set_node_param("加载图像", "image", "female_portrait.png")
+
+        wf.set_node_param("K采样器", "seed", gen_image_params.seed)
+
+        results = await api.queue_and_wait_images(wf, output_node_title="保存图像")
+        cnt = 0
+        img_path = []
+        for _, image_data in results.items():
+            file_name = f'{prefix}_{cnt}.png'
+            dest_dir = Path(save_dir)
+            dest_dir.mkdir(parents=True, exist_ok=True)
+            out_path = dest_dir / file_name
+
+            with open(out_path, "wb+") as f:
+                f.write(image_data)
+            img_path.append(out_path)
+            cnt += 1
+        return img_path
 
 
 

@@ -318,7 +318,7 @@ class GenVoice:
         
         if not filter_voices:
             logger.info(f'warning, not find any voices.')
-            for speaker in self.speaker:
+            for speaker in self.voice_list:
                 voice_type = speaker.get('voice_type', None)
                 filter_decs = speaker.get('description', None)
                 if check_voice_info(voice_type, filter_decs) or check_gender(speaker):
@@ -441,17 +441,6 @@ class GenVoice:
             for i, lines in enumerate(lines_voices):
                 tg.create_task(download_worker(lines=lines, index=i))
                 
-
-
-    # async def get_voice(self, param: GenVoiceParam, save_dir:str|Path, prefix:str):
-        
-    #     # if param.voice_type is None:
-    #     #     speaker = await self._filter_voices(param, self.used_voices)
-    #     #     self.used_voices.append(speaker)
-    #     #     param.voice_type=speaker
-    #     logger.info(f'role_name:{param.role_name} voice_type is {speaker}')
-    #     await self._dwonload_voice(param.voice_type, param.lines_voices, save_dir, prefix)
-
 
 
 if __name__ == '__main__':

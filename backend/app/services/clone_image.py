@@ -3,6 +3,7 @@
 import inspect
 import os
 from pathlib import Path
+import random
 from typing import Literal, TypedDict
 
 from celery.utils.log import get_task_logger
@@ -181,9 +182,18 @@ async def initial_role_images(state: CloneImageState) -> Command[Literal['initia
             if character.visual_anchor_prompt:
                 params = GenImageParams(
                     prompt=character.visual_anchor_prompt,
-                    image_size=ImageSize.SIZE_1024x1024.value
+                    image_size=ImageSize.SIZE_1024x1024
                 )
-                image_path_list = await gen_image.gen_image(gen_image_params=params, save_dir=save_dir, prefix=character.role_name)
+                if settings.USER_COMFY_IMAGE:
+                    img_type='male'
+                    for role_info in state['role_asset_library']:
+                        if role_info['role_name'] == character.role_name:
+                            img_type=role_info['gender']
+                            break
+                    params.image_size=ImageSize.SIZE_512x640
+                    image_path_list = await gen_image.gen_image_local(img_type=img_type, gen_image_params=params, save_dir=save_dir, prefix=character.role_name)
+                else:
+                    image_path_list = await gen_image.gen_image(gen_image_params=params, save_dir=save_dir, prefix=character.role_name)
                 logger.info(f'get image path list: {image_path_list}')
                 role_img_info[character.role_name] = image_path_list
                 if not image_path_list:

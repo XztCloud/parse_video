@@ -1,0 +1,256 @@
+{
+  "3": {
+    "inputs": {
+      "seed": 577823718526017,
+      "steps": 25,
+      "cfg": 6.5,
+      "sampler_name": "euler",
+      "scheduler": "normal",
+      "denoise": 1,
+      "model": [
+        "4",
+        0
+      ],
+      "positive": [
+        "28",
+        0
+      ],
+      "negative": [
+        "28",
+        1
+      ],
+      "latent_image": [
+        "29",
+        0
+      ]
+    },
+    "class_type": "KSampler",
+    "_meta": {
+      "title": "K采样器"
+    }
+  },
+  "4": {
+    "inputs": {
+      "ckpt_name": "DreamShaper_8_pruned.safetensors"
+    },
+    "class_type": "CheckpointLoaderSimple",
+    "_meta": {
+      "title": "Checkpoint加载器（简易）"
+    }
+  },
+  "6": {
+    "inputs": {
+      "text": "Photorealistic, ultra-detailed head-and-shoulders portrait of a 29-year-old East Asian male urban white-collar, with neatly trimmed short black hair, soft and approachable facial features, wearing a crisp light blue business casual shirt. The background is pure matte white, cinematic lighting, 4K resolution, shot on ARRI Alexa camera, fresh natural tone, soft focus on edges. Shallow depth of field emphasizes the subject's professional yet relaxed demeanor, suitable for daily product endorsement scenes.",
+      "clip": [
+        "4",
+        1
+      ]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "CLIP Text Encode (Positive Prompt)"
+    }
+  },
+  "7": {
+    "inputs": {
+      "text": "lowres, bad anatomy, bad hands, text, error, missing fingers, extra digit, fewer digits, cropped, worst quality, low quality, normal quality, jpeg artifacts, signature, watermark, username, blurry, artist name, deformed, disfigured, ugly, extra limbs, missing limbs, poorly drawn face, mutated, mutated hands, extra fingers, bad proportions, gross proportions, malformed limbs, missing arms, missing legs, extra arms, extra legs, fused fingers, long neck, text, signature, watermark, 3d render, animate",
+      "clip": [
+        "4",
+        1
+      ]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "CLIP Text Encode (Negative Prompt)"
+    }
+  },
+  "8": {
+    "inputs": {
+      "samples": [
+        "3",
+        0
+      ],
+      "vae": [
+        "4",
+        2
+      ]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "VAE解码"
+    }
+  },
+  "9": {
+    "inputs": {
+      "filename_prefix": "ComfyUI",
+      "images": [
+        "8",
+        0
+      ]
+    },
+    "class_type": "SaveImage",
+    "_meta": {
+      "title": "保存图像"
+    }
+  },
+  "19": {
+    "inputs": {
+      "image": "male_portrait.png"
+    },
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "加载图像"
+    }
+  },
+  "20": {
+    "inputs": {
+      "detect_hand": "enable",
+      "detect_body": "enable",
+      "detect_face": "enable",
+      "resolution": 512,
+      "bbox_detector": "yolox_l.onnx",
+      "pose_estimator": "dw-ll_ucoco_384_bs5.torchscript.pt",
+      "scale_stick_for_xinsr_cn": "disable",
+      "image": [
+        "25",
+        0
+      ]
+    },
+    "class_type": "DWPreprocessor",
+    "_meta": {
+      "title": "DWPose Estimator"
+    }
+  },
+  "22": {
+    "inputs": {
+      "control_net_name": "control_v11p_sd15_openpose.pth"
+    },
+    "class_type": "ControlNetLoader",
+    "_meta": {
+      "title": "加载ControlNet模型"
+    }
+  },
+  "23": {
+    "inputs": {
+      "strength": 0.8,
+      "start_percent": 0,
+      "end_percent": 0.85,
+      "positive": [
+        "6",
+        0
+      ],
+      "negative": [
+        "7",
+        0
+      ],
+      "control_net": [
+        "22",
+        0
+      ],
+      "image": [
+        "20",
+        0
+      ],
+      "vae": [
+        "4",
+        2
+      ]
+    },
+    "class_type": "ControlNetApplyAdvanced",
+    "_meta": {
+      "title": "应用ControlNet（旧版高级）"
+    }
+  },
+  "25": {
+    "inputs": {
+      "upscale_method": "nearest-exact",
+      "scale_by": 0.6,
+      "image": [
+        "19",
+        0
+      ]
+    },
+    "class_type": "ImageScaleBy",
+    "_meta": {
+      "title": "缩放图像（比例）"
+    }
+  },
+  "28": {
+    "inputs": {
+      "strength": 0.8,
+      "start_percent": 0,
+      "end_percent": 0.85,
+      "positive": [
+        "23",
+        0
+      ],
+      "negative": [
+        "23",
+        1
+      ],
+      "control_net": [
+        "31",
+        0
+      ],
+      "image": [
+        "36",
+        0
+      ],
+      "vae": [
+        "4",
+        2
+      ]
+    },
+    "class_type": "ControlNetApplyAdvanced",
+    "_meta": {
+      "title": "应用ControlNet（旧版高级）"
+    }
+  },
+  "29": {
+    "inputs": {
+      "width": 512,
+      "height": 640,
+      "batch_size": 1
+    },
+    "class_type": "EmptyLatentImage",
+    "_meta": {
+      "title": "空Latent图像"
+    }
+  },
+  "31": {
+    "inputs": {
+      "control_net_name": "control_v11f1p_sd15_depth.pth"
+    },
+    "class_type": "ControlNetLoader",
+    "_meta": {
+      "title": "加载ControlNet模型"
+    }
+  },
+  "34": {
+    "inputs": {
+      "upscale_method": "nearest-exact",
+      "scale_by": 0.6,
+      "image": [
+        "19",
+        0
+      ]
+    },
+    "class_type": "ImageScaleBy",
+    "_meta": {
+      "title": "缩放图像（比例）"
+    }
+  },
+  "36": {
+    "inputs": {
+      "resolution": 512,
+      "image": [
+        "34",
+        0
+      ]
+    },
+    "class_type": "Zoe-DepthMapPreprocessor",
+    "_meta": {
+      "title": "Zoe Depth Map"
+    }
+  }
+}

@@ -38,3 +38,5 @@ Parse_Video.egg-info
 
 versions.bak
 videodl_outputs
+
+build/

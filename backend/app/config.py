@@ -1,4 +1,6 @@
+from pathlib import Path
 from typing import Annotated, Any, List
+from urllib.parse import urljoin
 
 from pydantic import BeforeValidator, PostgresDsn, computed_field
 from pydantic_settings import BaseSettings
@@ -60,9 +62,29 @@ class Settings(BaseSettings):
     POSTGRES_USER: str
     POSTGRES_PASSWORD: str
     POSTGRES_DB: str
+
+    COMFY_URL: str
+    COMFY_USER: str
+    COMFY_PASSWORD: str
+    USER_COMFY_IMAGE: bool=False
         
     class Config:
         env_file = "../.env"
+
+
+    @computed_field
+    @property
+    def comfy_ws_url(self) -> str:
+        url_without_protocol = self.COMFY_URL.split("//")[-1]
+        if "https" in self.COMFY_URL:
+            ws_protocol = "wss"
+        else:
+            ws_protocol = "ws"
+        if self.COMFY_USER:
+            ws_url_base = f"{ws_protocol}://{self.COMFY_USER}:{self.COMFY_PASSWORD}@{url_without_protocol}"
+        else:
+            ws_url_base = f"{ws_protocol}://{url_without_protocol}"
+        return urljoin(ws_url_base, "/ws?clientId={}")
 
     @computed_field
     @property
