@@ -1,0 +1,130 @@
+---
+- name: 上传视频
+  steps:
+    - request:
+        method: POST
+        url: 'api/v1/videos/upload'
+        files:
+          file: !func gen_fake_file
+    - response:
+        status_code: 200
+        json:
+          id: 
+            type: int
+            gt: 0
+          filename: 
+            type: str
+            not_empty: true
+          status:
+            eq: pending
+          progress:
+            eq: 0
+    - extract:
+        video_id: [json, $.id]
+
+- name: 上传视频触发限流
+  steps:
+    - request:
+        method: POST
+        url: 'api/v1/videos/upload'
+        files:
+          file: !func gen_fake_file
+    - response:
+        status_code: 429
+
+- name: 上传抖音视频分享链接
+  steps:
+    - request:
+        method: POST
+        url: 'api/v1/videos/douyin'
+        json:
+          url: '9.23 :2pm F@u.fb gBT:/ 10/15 夏天穿这套也太舒服了吧！宽松版型超自在 班尼路夏季新款套装，宽松剪裁穿着无束缚，简约潮感设计适配多种场合，3色可选还支持七天无理由退换~# ootd穿搭 # 班尼路男装 # 男士穿搭 # 套装两件套 # 五一穿搭不重样挑战   https://v.douyin.com/dj4sJtppq0I/ 复制此链接，打开Dou音搜索，直接观看视频！'
+    - response:
+        status_code: 200
+        json:
+          id: 
+            type: int
+            gt: 0
+          filename: 
+            type: str
+            not_empty: true
+          status:
+            eq: pending
+          progress:
+            eq: 0
+
+- name: 上传抖音视频分享链接触发限流
+  steps:
+    - request:
+        method: POST
+        url: 'api/v1/videos/douyin'
+        json:
+          url: '9.23 :2pm F@u.fb gBT:/ 10/15 夏天穿这套也太舒服了吧！宽松版型超自在 班尼路夏季新款套装，宽松剪裁穿着无束缚，简约潮感设计适配多种场合，3色可选还支持七天无理由退换~# ootd穿搭 # 班尼路男装 # 男士穿搭 # 套装两件套 # 五一穿搭不重样挑战   https://v.douyin.com/dj4sJtppq0I/ 复制此链接，打开Dou音搜索，直接观看视频！'
+    - response:
+        status_code: 429
+
+- name: 获取已经上传的视频信息
+  steps:
+    - request:
+        method: GET
+        url: 'api/v1/videos'
+        params:
+          skip: 0
+          limit: 20
+    - response:
+        status_code: 200
+        json:
+          "":
+            type: list
+            len_gt: 0
+            each:
+              id:
+                type: int
+                ge: 0
+              filename:
+                type: str
+                not_empty: true
+              status:
+                type: str
+                in: 
+                  - pending
+                  - processing
+                  - done
+                  - failed
+              progress:
+                type: int
+                ge: 0
+                le: 100
+              
+              error_message:
+                any: true
+
+- name: 获取指定video信息
+  steps:
+    - request:
+        method: GET
+        url: 'api/v1/videos/${video_id}/status'
+    - response:
+        status_code: 200
+        json:
+          id:
+            type: int
+            ge: 0
+          filename:
+            type: str
+            not_empty: true
+          status:
+            type: str
+            in: 
+              - pending
+              - processing
+              - done
+              - failed
+          progress:
+            type: int
+            ge: 0
+            le: 100
+          
+          error_message:
+            any: true
+

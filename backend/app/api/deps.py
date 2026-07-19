@@ -7,6 +7,7 @@ from pydantic import ValidationError
 from slowapi import Limiter
 from app.database import AsyncSessionLocal, SessionLocal
 from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi import Depends, HTTPException
 
 from app.api.security import ALGORITHM
@@ -28,6 +29,7 @@ async def get_async_db():
         yield db
 
 SessionDep = Annotated[Session, Depends(get_db)]
+AsyncSessionDep = Annotated[AsyncSession, Depends(get_async_db)]
 
 reusable_oauth2 = OAuth2PasswordBearer(
     tokenUrl=f"api/v1/login/access-token",

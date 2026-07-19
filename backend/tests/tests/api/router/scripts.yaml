@@ -1,0 +1,123 @@
+---
+- name: 脚本不存在
+  steps:
+    - request:
+        method: GET
+        url: "/api/v1/scripts/-1"
+    - response:
+        status_code: 404
+
+- name: 脚本不存在时导出
+  steps:
+    - request:
+        method: GET
+        url: "/api/v1/scripts/-1/export"
+    - response:
+        status_code: 404
+
+- name: 脚本存在但文件未生成
+  steps:
+    - option: !func prepare_scripts_simple
+    - request:
+        method: GET
+        url: "/api/v1/scripts/${video_id}"
+    - response:
+        status_code: 200
+        json:
+          id:
+            type: int
+            ge: 0
+          video_id:
+            type: int
+            ge: 0
+          content:
+            eq: 未找到文件
+          segments:
+            type: list
+            len: 0
+
+- name: 脚本存在但文件未生成时导出
+  steps:
+    - request:
+        method: GET
+        url: "/api/v1/scripts/${video_id}/export"
+    - response:
+        status_code: 200
+        headers:
+          content-disposition: 
+            eq: 'attachment; filename=script_${video_id}.json'
+        json:
+          video_id:
+            type: int
+            ge: 0
+          script:
+            eq: null
+          segments:
+            type: list
+            len: 0
+
+- name: 脚本存在 文件也存在
+  steps:
+    - option: !func prepare_scripts_normal
+    - request:
+        method: GET
+        url: "/api/v1/scripts/${video_id}"
+    - response:
+        status_code: 200
+        json:
+          id:
+            type: int
+            ge: 0
+          video_id:
+            type: int
+            ge: 0
+          content:
+            type: str
+            not_empty: true
+          segments:
+            type: list
+            len_gt: 0
+            each:
+              id:
+                type: int
+                ge: 0
+              segment_type:
+                type: str
+                in:
+                  - shot
+                  - dialogue
+                  - mixed
+
+- name: 脚本存在 文件也存在时 导出
+  steps:
+    - request:
+        method: GET
+        url: "/api/v1/scripts/${video_id}/export"
+    - response:
+        status_code: 200
+        headers:
+          content-disposition: 
+            eq: 'attachment; filename=script_${video_id}.json'
+        json:
+          video_id:
+            type: int
+            ge: 0
+          script:
+            type: str
+            not_empty: true
+          segments:
+            type: list
+            len_gt: 0
+            each:
+              start_time:
+                type: float
+                ge: 0
+              end_time:
+                type: float
+                ge: 0
+              segment_type:
+                type: str
+                in:
+                  - shot
+                  - dialogue
+                  - mixed

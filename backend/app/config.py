@@ -3,7 +3,7 @@ from typing import Annotated, Any, List
 from urllib.parse import urljoin
 
 from pydantic import BeforeValidator, PostgresDsn, computed_field
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 def parse_cors(v: Any) -> List[str] | str:
     if isinstance(v, str) and not v.startswith("["):
@@ -68,8 +68,11 @@ class Settings(BaseSettings):
     COMFY_PASSWORD: str
     USER_COMFY_IMAGE: bool=False
         
-    class Config:
-        env_file = "../.env"
+    model_config = SettingsConfigDict(
+        env_file="../.env",      # 👈 核心：告诉它去上一级目录找 .env
+        env_file_encoding="utf-8",
+        extra="ignore"           # 忽略测试不需要的额外环境变量
+    )
 
 
     @computed_field

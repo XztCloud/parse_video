@@ -17,14 +17,22 @@ from app.api.deps import limiter
 
 
 class ClonePlotRequest(BaseModel):
+    # 允许通过原名或别名进行赋值/解析
+    model_config = {
+        "populate_by_name": True  
+    }
     video_id: int =  Field(..., alias="videoId")
     clone_theme: str =  Field(..., alias="cloneTheme")
     auto_run: bool = Field(default=False, alias="autoRun", description="自动进入下一阶段")
-    style: Optional[str] = Field(description="视频风格 不填保持不变")
-    product: Optional[str] = Field(description="带货商品 可以不填")
-    product_desc: Optional[str] = Field(alias="productDesc", description="商品介绍")
+    style: Optional[str] = Field(default=None, description="视频风格 不填保持不变")
+    product: Optional[str] = Field(default=None,description="带货商品 可以不填")
+    product_desc: Optional[str] = Field(alias="productDesc", default=None, description="商品介绍")
 
 class CloneRequestBase(BaseModel):
+    # 允许通过原名或别名进行赋值/解析
+    model_config = {
+        "populate_by_name": True  
+    }
     clone_script_id: int = Field(..., alias="cloneScriptId")
     auto_run: bool = Field(default=False,  alias="autoRun", description="自动进入下一阶段")
 
@@ -74,9 +82,9 @@ async def clone_plot(request: Request, request_data: ClonePlotRequest, db: Sessi
 
         clone_video_task.delay(clone_script.id, 1, request_data.auto_run)
         return {"id": clone_script.id, "theme": request_data.clone_theme, "status": clone_script.clone_status, "progress": clone_script.clone_progress}
-    except Exception as e:
-        print(f"复刻失败: {str(e)}")
-        raise HTTPException(status_code=400, detail=f"复刻失败: {str(e)}")
+    except Exception:
+        logger.error(f"复刻失败")
+        raise
 
 @router.post("/re_plot")
 async def re_clone_plot(request: ReClonePlotRequest, db: SessionDep):

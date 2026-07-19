@@ -1,15 +1,17 @@
 from datetime import timedelta
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Response
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy import select
 
-from app.api.deps import SessionDep
+from app.api.deps import CurrentUser, SessionDep
 from app.api.security import create_access_token, verify_password
 from app.config import settings
 from app.models.user import Token, User
 from sqlalchemy.orm import Session
+
+from app.api.router.user import UserPublic
 
 router = APIRouter(prefix="/login",
                    tags=["login"],)
@@ -85,3 +87,10 @@ async def logout(response: Response):
         max_age=0,     # 关键：设置为 0 立即过期
     )
     return {"detail": "Successfully logged out"}
+
+@router.post("/test-token", response_model=UserPublic)
+def test_token(current_user: CurrentUser) -> Any:
+    """
+    Test access token
+    """
+    return current_user

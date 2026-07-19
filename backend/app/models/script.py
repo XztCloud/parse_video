@@ -26,7 +26,7 @@ class CloneStatus(enum.Enum):
 class Script(Base):
     __tablename__ = "scripts"
     id = Column(Integer, primary_key=True, index=True)
-    video_id = Column(Integer, ForeignKey("videos.id"), unique=True)
+    video_id = Column(Integer, ForeignKey("videos.id", ondelete="CASCADE"), unique=True)
     parse_pointer = Column(Text, nullable=True, comment="解析重点信息")
     parse_script = Column(JSON, nullable=True, comment="解析剧本脚本")
     parse_file_path = Column(Text, nullable=True, comment="解析结果文件路径,markdown格式")
@@ -43,7 +43,7 @@ class Script(Base):
 class ScriptSegment(Base):
     __tablename__ = "script_segments"
     id = Column(Integer, primary_key=True, index=True)
-    script_id = Column(Integer, ForeignKey("scripts.id"))
+    script_id = Column(Integer, ForeignKey("scripts.id", ondelete="CASCADE"))
     start_time = Column(Float, nullable=False)
     end_time = Column(Float, nullable=False)
     shot_description = Column(Text, nullable=True)
@@ -54,7 +54,7 @@ class ScriptSegment(Base):
 class CloneScript(Base):
     __tablename__ = "clone_scripts"
     id = Column(Integer, primary_key=True, index=True)
-    script_id = Column(Integer, ForeignKey("scripts.id"))
+    script_id = Column(Integer, ForeignKey("scripts.id", ondelete="CASCADE"))
     clone_theme = Column(String(255), comment="复刻视频主题")
     clone_requirements = Column(JSON, nullable=True, comment="复刻视频的要求")
     clone_parse_pointer = Column(JSON, nullable=True, comment="复刻剧本解析")
@@ -73,7 +73,7 @@ class CloneScript(Base):
 class CloneVoice(Base):
     __tablename__ = "clone_voices"
     id = Column(Integer, primary_key=True, index=True)
-    script_id = Column(Integer, ForeignKey("clone_scripts.id"))
+    script_id = Column(Integer, ForeignKey("clone_scripts.id", ondelete="CASCADE"))
     role_name = Column(String(128), nullable=False, index=True)
     duration = Column(Float, nullable=False)
     voice_type = Column(String(256), nullable=True, comment="声音风格")
@@ -94,7 +94,7 @@ class CloneVoice(Base):
 class CloneImage(Base):
     __tablename__ = "clone_images"
     id = Column(Integer, primary_key=True, index=True)
-    script_id = Column(Integer, ForeignKey("clone_scripts.id"))
+    script_id = Column(Integer, ForeignKey("clone_scripts.id", ondelete="CASCADE"))
     role_name = Column(String(128), nullable=False, index=True)
     width = Column(Integer, nullable=False)
     height = Column(Integer, nullable=False)
@@ -108,7 +108,7 @@ class CloneImage(Base):
 class CloneScriptSegment(Base):
     __tablename__ = "clone_script_segments"
     id = Column(Integer, primary_key=True, index=True)
-    script_id = Column(Integer, ForeignKey("clone_scripts.id"))
+    script_id = Column(Integer, ForeignKey("clone_scripts.id", ondelete="CASCADE"))
     start_time = Column(Float, nullable=False)
     end_time = Column(Float, nullable=False)
     shot_description = Column(Text, nullable=True)
@@ -122,7 +122,7 @@ class CloneScriptSegment(Base):
 class CloneVideo(Base):
     __tablename__ = "clone_videos"
     id = Column(Integer, primary_key=True, index=True)
-    video_id = Column(Integer, ForeignKey("clone_scripts.id"))
+    video_id = Column(Integer, ForeignKey("clone_scripts.id", ondelete="CASCADE"))
     file_path = Column(String(512), nullable=False)
     duration = Column(Float, nullable=True)
     error_message = Column(String(1024), nullable=True)

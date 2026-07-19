@@ -1,0 +1,45 @@
+---
+- name: 测试复刻剧情脚本接口，原视频脚本不存在
+  steps:
+    - request:
+        method: POST
+        url: api/v1/clone/plot
+        json: 
+          video_id: -1
+          clone_theme: 测试使用
+    - response:
+        status_code: 404
+
+- name: 测试复刻剧情脚本接口，触发限流
+  steps:
+    - request:
+        method: POST
+        url: api/v1/clone/plot
+        json: 
+          video_id: -1
+          clone_theme: 测试使用
+    - response:
+        status_code: 429
+
+- name: 测试复刻剧情脚本接口，脚本存在
+  steps:
+    - option: 
+        wait: !func wait_limiter
+    - request:
+        method: POST
+        url: api/v1/clone/plot
+        json: !func prepare_plot_data
+    - response:
+        status_code: 200
+        json:
+          id:
+            type: int
+            ge: 0
+          theme:
+            type: str
+            not_empty: true
+          status:
+            eq: PLOT
+          progress:
+            eq: 0
+    - option: !func check_plot_db

@@ -76,7 +76,7 @@ class ApiComfy:
                             return prompt_id
     
     async def queue_and_wait_images(
-        self, wf: WrapComfy, output_node_title: str, loop:asyncio.BaseEventLoop = asyncio.get_event_loop()
+        self, wf: WrapComfy, output_node_title: str
     ) -> dict:
         """
         Queues a prompt with a ComfyWorkflowWrapper object and waits for the images to be generated.

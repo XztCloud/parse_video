@@ -15,21 +15,9 @@ from slowapi import  _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from app.api.deps import limiter
 
-app = FastAPI(title="视频脚本解析平台", version="1.0.0")
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
 os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
 
-@app.get("/health")
-def health_check():
-    return {"status": "ok"}
 
 from .database import Base, engine
 

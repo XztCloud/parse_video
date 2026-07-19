@@ -1,0 +1,73 @@
+---
+- name: 登录账号
+  steps:
+    - request:
+        method: POST
+        url: "api/v1/login/access-token"
+        data:
+          username: !settings SUPER_ADMINI_EMAIL
+          password: !settings SUPER_ADMINI_PASSWORD
+    - response:
+        status_code: 200
+        json:
+          access_token:
+            type: str
+            not_empty: true
+          token_type: 
+            eq: bearer
+
+
+- name: 使用错误密码登录账号
+  steps:
+    - request:
+        method: POST
+        url: "api/v1/login/access-token"
+        data:
+          username: !settings SUPER_ADMINI_EMAIL
+          password: "incorrect"
+    - response:
+        status_code: 400
+
+- name: 测试使用access-token登录
+  steps:
+    - request:
+        method: POST
+        url: "api/v1/login/test-token"
+    - response:
+        status_code: 200
+        json: 
+          email:
+            type: str
+            not_empty: true
+
+- name: 测试使用 bcrypt 密码哈希登录时，该哈希会升级为 argon2。
+  steps:
+    - request:
+        method: POST
+        url: "api/v1/login/access-token"
+        data: !func gen_user_bcrythasher
+    - response:
+        status_code: 200
+        json:
+          access_token: 
+            type: str
+            not_empty: true
+    - option:
+        !func get_verify
+
+- name: 退出登录
+  steps:
+    - request:
+        method: POST
+        url: api/v1/login/logout
+    - response:
+        status_code: 200
+
+- name: 退出登录后访问认证接口
+  steps:
+    - request:
+        method: GET
+        url: api/v1/videos
+        no_headers: true
+    - response:
+        status_code: 401
