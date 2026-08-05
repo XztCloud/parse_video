@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Parse Video 项目架构流程图</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11.15.0/dist/mermaid.min.js"></script>
+<script>
+  mermaid.initialize({
+    startOnLoad: true,
+    securityLevel: "loose",
+    theme: "base",
+    themeVariables: {
+      fontSize: "15px",
+      fontFamily: "-apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif",
+      primaryColor: "#eef4fc",
+      primaryBorderColor: "#5b8dd9",
+      primaryTextColor: "#1f2328",
+      secondaryColor: "#fef7e6",
+      secondaryBorderColor: "#d9b45b",
+      tertiaryColor: "#f3f6f9",
+      lineColor: "#5b6472",
+      clusterBkg: "#f8fafc",
+      clusterBorder: "#a8b6c8",
+      edgeLabelBackground: "#ffffff"
+    },
+    flowchart: {
+      nodeSpacing: 55,
+      rankSpacing: 70,
+      padding: 14,
+      curve: "basis",
+      useMaxWidth: false,   // 关键：不缩放 SVG，保持原始清晰度
+      htmlLabels: true
+    },
+    er: {
+      useMaxWidth: false,
+      fontSize: 15,
+      layoutDirection: "LR"
+    }
+  });
+</script>
+<style>
+  :root { color-scheme: light; }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    background: #f0f2f5;
+    color: #1f2328;
+    margin: 0;
+    padding: 24px 32px 60px;
+  }
+  .container { max-width: 1800px; margin: 0 auto; }
+  h1 { text-align: center; font-size: 26px; margin: 8px 0 4px; }
+  .subtitle { text-align: center; color: #57606a; font-size: 14px; margin-bottom: 30px; }
+
+  .card {
+    background: #fff;
+    border: 1px solid #d0d7de;
+    border-radius: 12px;
+    padding: 24px 24px 20px;
+    margin-bottom: 28px;
+    box-shadow: 0 1px 4px rgba(0,0,0,.05);
+  }
+  .card h2 {
+    font-size: 17px;
+    margin: 0 0 14px 0;
+    color: #0969da;
+    border-left: 4px solid #0969da;
+    padding-left: 12px;
+    line-height: 1.4;
+  }
+  .card h2 .badge {
+    display: inline-block;
+    background: #ddf4ff;
+    color: #0969da;
+    font-size: 12px;
+    font-weight: 500;
+    border-radius: 12px;
+    padding: 2px 10px;
+    margin-left: 10px;
+    vertical-align: middle;
+  }
+  .note {
+    background: #fff8c5;
+    border: 1px solid #d4a72c;
+    border-radius: 8px;
+    padding: 12px 18px;
+    font-size: 13.5px;
+    color: #4d4000;
+    margin: 0 0 16px 0;
+    line-height: 1.8;
+  }
+  .note code {
+    background: #fff;
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-size: 12.5px;
+    border: 1px solid #ece4b8;
+  }
+
+  /* Mermaid 图表容器：不缩放，宽图可横向滚动查看 */
+  pre.mermaid {
+    background: #fbfcfe;
+    border: 1px solid #e3e8ef;
+    border-radius: 10px;
+    overflow-x: auto;
+    padding: 18px 10px;
+    margin: 0;
+    text-align: center;
+    display: block;
+  }
+  pre.mermaid svg {
+    max-width: none;   /* 禁止 SVG 被压缩 */
+    margin: 0 auto;
+    display: block;
+  }
+
+  .legend {
+    margin: 14px 2px 0;
+    font-size: 12.5px;
+    color: #57606a;
+    line-height: 1.8;
+  }
+  .legend span { margin-right: 18px; white-space: nowrap; }
+  .legend .solid { color: #0969da; font-weight: 600; }
+  .legend .dash  { color: #8250df; font-weight: 600; }
+  .legend .db    { color: #1a7f37; font-weight: 600; }
+
+  footer { text-align: center; color: #8b949e; font-size: 12px; margin-top: 24px; }
+  .hint {
+    text-align: center;
+    font-size: 12px;
+    color: #8b949e;
+    background: #fff;
+    border: 1px dashed #d0d7de;
+    border-radius: 8px;
+    padding: 6px 12px;
+    margin-bottom: 20px;
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>📹 Parse Video 项目架构流程图</h1>
+  <p class="subtitle">短视频解析 + AI 主题复刻系统 · Next.js 前端 · FastAPI 后端 · Celery 后台任务</p>
+  <div class="hint">💡 图表保持原始分辨率（不缩放），较宽的图可横向滚动查看；也可按住 Ctrl + 滚轮缩放页面。</div>
+
+  <!-- 0. 启动流程 -->
+  <div class="card">
+    <h2>0️⃣ 系统启动流程<span class="badge">三个独立进程</span></h2>
+    <div class="note">
+      三个进程共享 <code>PostgreSQL</code> 与 <code>Redis</code>：
+      <br>• <code>backend/</code> 执行 <code>start-api</code> → FastAPI（入口 <code>app.main:main</code>，uvicorn 监听 <code>:8000</code>）
+      <br>• <code>backend/</code> 执行 <code>start-worker</code> → Celery Worker（入口 <code>app.celery_app:start_celery_worker</code>）
+      <br>• <code>frontend/</code> 执行 <code>npm run dev</code> → Next.js（<code>:3000</code>，通过 <code>/api/*</code> 代理到后端）
+    </div>
+    <pre class="mermaid">
+flowchart LR
+    subgraph DEV["🖥️ 本地开发环境"]
+        direction LR
+        FE["💻 frontend/<br/>npm run dev<br/>Next.js :3000"]
+        BE["🐍 backend/<br/>start-api<br/>FastAPI :8000"]
+        WK["⚙️ backend/<br/>start-worker<br/>Celery"]
+        PG[("🗄️ PostgreSQL")]
+        RD[("📮 Redis")]
+    end
+
+    FE -- "HTTP /api/v1/*" --> BE
+    BE -- "SQLAlchemy 读写" --> PG
+    BE -- "task.delay() 投递" --> RD
+    WK -- "领取任务" --> RD
+    WK -- "状态/结果读写" --> PG
+
+    EXT["🌐 外部服务<br/>LLM · ComfyUI · ASR · TTS"]
+    BE -.-> EXT
+    WK -.-> EXT
+    </pre>
+  </div>
+
+  <!-- 1. 视频解析 -->
+  <div class="card">
+    <h2>1️⃣ 视频解析流程 <span class="badge">parse_video_task</span></h2>
+    <div class="note">
+      前端上传视频或粘贴抖音链接 → <code>POST /api/v1/videos/upload</code> / <code>/videos/douyin</code>
+      → 创建 <code>Video</code> 记录 → <code>parse_video_task.delay(video_id)</code> 投递 Redis → Celery 异步解析。
+    </div>
+    <pre class="mermaid">
+flowchart TD
+    A["📤 前端<br/>上传 / 抖音链接"]
+    B["🖥️ FastAPI<br/>POST /videos/upload<br/>/ /videos/douyin"]
+    C[("🗄️ Video 记录<br/>status=PENDING")]
+    D["📮 Redis 队列<br/>parse_video_task.delay()"]
+    E["⚙️ Celery Worker"]
+
+    F["🎬 ffmpeg 提取音频"]
+    G["✂️ scenedetect 镜头切分"]
+    H["🎙️ 阿里云 ASR 识别台词"]
+    I["👁️ 视觉模型分析画面"]
+    J["🧠 LLM 生成分镜脚本"]
+    K["📝 输出 Markdown / JSON"]
+    L[("🗄️ Script + 分镜<br/>status=DONE")]
+
+    M["📊 前端轮询<br/>GET /videos/{id}/status"]
+
+    A --> B --> C --> D --> E
+    E --> F --> G --> H --> I --> J --> K --> L
+    E -. 更新进度 20→95 .-> C
+    L -. "status=DONE" .-> M
+    </pre>
+  </div>
+
+  <!-- 2. 复刻流程 -->
+  <div class="card">
+    <h2>2️⃣ 视频复刻流程 <span class="badge">clone_video_task + LangGraph 7 阶段</span></h2>
+    <div class="note">
+      前端输入主题 → <code>POST /api/v1/clone/plot</code> → 创建 <code>CloneScript</code>
+      → <code>clone_video_task.delay(id, step, auto_run)</code> → Worker 内 <code>begin_clone()</code>
+      驱动 LangGraph 状态机，按 step 顺序执行 7 个阶段。<code>auto_run=true</code> 自动衔接，否则前端点"继续"。
+    </div>
+    <pre class="mermaid">
+flowchart TD
+    S["🎯 前端输入主题<br/>CreateClone"]
+    R["🖥️ FastAPI<br/>POST /clone/plot<br/>状态校验 + 乐观锁"]
+    CS[("🗄️ CloneScript<br/>clone_status")]
+    T["📮 Redis 队列<br/>clone_video_task.delay()"]
+    W["⚙️ Celery Worker<br/>begin_clone()"]
+
+    subgraph LG["LangGraph 状态机"]
+        direction TB
+        N1["① 剧本 plot<br/>LLM 创意改写"]
+        N2["② 配音 voice<br/>TTS 生成音频"]
+        N3["③ 分镜 storyboard<br/>LLM 分镜脚本"]
+        N4["④ 生图 image<br/>ComfyUI 角色/场景"]
+        N5["⑤ 参考帧 frame<br/>分镜首帧"]
+        N6["⑥ 视频 video<br/>图生视频"]
+        N7["⑦ 合并 merge<br/>合成成片"]
+        N1 --> N2 --> N3 --> N4 --> N5 --> N6 --> N7
+    end
+
+    E["✅ clone_status=DONE"]
+
+    S --> R --> CS --> T --> W --> N1
+    N7 --> E
+
+    U["🔄 前端轮询<br/>GET /clone/{id}/status"]
+    CS -. "状态/进度" .-> U
+    U -- "继续 / 重试 / 跳过" --> R2["🖥️ FastAPI<br/>POST /clone/ 阶段接口"]
+    R2 --> T
+    E -. "auto_run=true 自动下一步" .-> N2
+    </pre>
+    <div class="legend">
+      <span class="solid">—— 主线执行</span>
+      <span class="dash">--- 状态回传 / 前端交互</span>
+    </div>
+  </div>
+
+  <!-- 3. 后端目录 -->
+  <div class="card">
+    <h2>3️⃣ 后端目录与职责</h2>
+    <pre class="mermaid">
+flowchart LR
+    subgraph B["backend / (FastAPI + Celery)"]
+        direction TB
+        MAIN["app/main.py<br/>create_app · 路由 · CORS · 限流"]
+        CEL["app/celery_app.py<br/>Celery 实例 + start-worker 入口"]
+        RTR["app/api/router_main.py<br/>免鉴权 / 需鉴权 两组路由"]
+        RT["app/api/router/<br/>login · user · scripts<br/>videos · clone"]
+        TSK["app/tasks/parse_video.py<br/>parse_video_task<br/>clone_video_task · regenerate_task"]
+        SVC["app/services/<br/>video_processor · asr_service<br/>visual_service · script_generator<br/>clone_plot/voice/storyboard/image<br/>clone_frame · clone_segment_video<br/>gen_image · gen_voice · llm<br/>comfy/api_comfy · douyin_parser"]
+        MDL["app/models/<br/>video · script · voice · user"]
+        DB["app/database.py<br/>SessionLocal + async engine"]
+        LP["app/tasks/process_loop_manager.py<br/>进程内常驻 EventLoop"]
+    end
+
+    MAIN --> RTR --> RT
+    RT --> TSK
+    CEL --> TSK
+    TSK --> SVC
+    SVC --> MDL
+    TSK --> DB
+    TSK --> LP
+    </pre>
+  </div>
+
+  <!-- 4. 前端路由 -->
+  <div class="card">
+    <h2>4️⃣ 前端页面路由</h2>
+    <pre class="mermaid">
+flowchart LR
+    subgraph F["frontend / (Next.js 14 · App Router)"]
+        direction TB
+        API["src/lib/api.ts<br/>axios 封装 · JWT 注入"]
+        MD["middleware.ts<br/>未登录 → /login"]
+        CFG["next.config.js<br/>/api/* 代理到后端"]
+        P0["/login 登录"]
+        P1["/ 首页<br/>上传 / 抖音链接"]
+        P2["/progress/[id]<br/>解析进度 · 2s 轮询"]
+        P3["/script/[videoId]<br/>脚本详情"]
+        P4["/clone/[videoId]<br/>创建复刻"]
+        P5["/cloneDetail/[id]<br/>复刻详情 · 各阶段 tab"]
+    end
+
+    API --> P1 & P2 & P3 & P4 & P5
+    MD --> P1
+    CFG --> API
+    </pre>
+  </div>
+
+  <!-- 5. 数据模型 -->
+  <div class="card">
+    <h2>5️⃣ 数据模型关系</h2>
+    <pre class="mermaid">
+erDiagram
+    VIDEOS ||--|| SCRIPTS : "1:1"
+    VIDEOS {
+        int id PK
+        string title
+        string file_path
+        string status
+        int progress
+    }
+    SCRIPTS ||--o{ SCRIPT_SEGMENTS : "1:N"
+    SCRIPTS ||--o{ CLONE_SCRIPTS : "1:N"
+    SCRIPTS {
+        int id PK
+        int video_id FK
+        json content
+        json parse_script
+        string parse_file_path
+    }
+    CLONE_SCRIPTS ||--o{ CLONE_VOICES : "1:N"
+    CLONE_SCRIPTS ||--o{ CLONE_SCRIPT_SEGMENTS : "1:N"
+    CLONE_SCRIPTS ||--o{ CLONE_ROLE_IMAGES : "1:N"
+    CLONE_SCRIPTS ||--o{ CLONE_SCENE_IMAGES : "1:N"
+    CLONE_SCRIPTS ||--o{ CLONE_VIDEOS : "1:N"
+    CLONE_SCRIPTS {
+        int id PK
+        int script_id FK
+        string clone_theme
+        string clone_status
+        int clone_progress
+    }
+    CLONE_SCRIPT_SEGMENTS ||--o{ CLONE_SEGMENT_IMAGES : "1:N"
+    CLONE_SCRIPT_SEGMENTS ||--o{ CLONE_SEGMENT_VIDEO : "1:N"
+    CLONE_SCRIPT_SEGMENTS {
+        int id PK
+        int script_id FK
+        float start_time
+        float end_time
+        json dialogue
+    }
+    </pre>
+  </div>
+
+  <!-- 6. 外部依赖 -->
+  <div class="card">
+    <h2>6️⃣ 外部依赖</h2>
+    <pre class="mermaid">
+flowchart LR
+    LLM["🧠 LLM<br/>脚本 / 分镜 / 创意生成"]
+    COMFY["🎨 ComfyUI<br/>文生图 · 图生图 · 图生视频"]
+    ASR["🎙️ 阿里云 ASR<br/>语音识别"]
+    TTS["🔊 TTS<br/>配音 + 时长预测"]
+    DOUYIN["📥 抖音下载<br/>yt-dlp / videofetch"]
+    FFMPEG["🎞️ FFmpeg + scenedetect<br/>音视频处理 / 镜头切分"]
+    PG[("🗄️ PostgreSQL 15")]
+    RD[("📮 Redis 7")]
+    </pre>
+  </div>
+
+</div>
+<footer>Parse Video 项目架构流程图 · 由代码自动分析生成 · 2026-08-05</footer>
+</body>
+</html>

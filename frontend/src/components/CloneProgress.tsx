@@ -40,7 +40,7 @@ export default function CloneProgress({
 
   const continueClone = async (clone_status: string) => {
     try {
-      if (clone_status === "PENDING") {
+      if (clone_status === "PENDING" || clone_status === "FAILED") {
         const data = await reClonePlot(cloneId, autoRun);
         console.log("reClonePlot response is", data);
       }
@@ -114,6 +114,7 @@ export default function CloneProgress({
         return;
       }
       if (data.clone_status === CloneStatus.FAILED) {
+        // 失败时保留错误信息展示，但不再阻断页面（允许用户点击"重试"）
         setError(data.error_message || "复刻失败");
         onStatusChange(CloneStatus.FAILED);
         if (timerRef.current) clearInterval(timerRef.current);
@@ -150,6 +151,7 @@ export default function CloneProgress({
       status.clone_status === "IMAGE_DONE" ||
       status.clone_status === "FRAME_DONE" ||
       status.clone_status === "SEGMENT_VIDEO_DONE" ||
+      status.clone_status === "FAILED" ||
       status.clone_status === "DONE");
 
   const canSkip =
@@ -190,6 +192,8 @@ export default function CloneProgress({
     : "";
 
   const statusRetryMap: Record<string, string> = {
+    PENDING: "PENDING",
+    FAILED: "PENDING",
     PLOT_DONE: "PENDING",
     VOICE_DONE: "PLOT_DONE",
     SEGMENTS_DONE: "VOICE_DONE",
@@ -203,7 +207,7 @@ export default function CloneProgress({
     ? (statusRetryMap[status.clone_status] ?? "未知状态")
     : "";
 
-  if (error) {
+  if (error && !status) {
     return <div className="text-red-500 text-center">{error}</div>;
   }
 
@@ -233,6 +237,13 @@ export default function CloneProgress({
             {status.clone_progress}%
           </div>
         </div>
+
+        {/* 失败/错误横幅 */}
+        {error && (
+          <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-600">
+            {error}
+          </div>
+        )}
 
         {/* Progress */}
         <div className="w-full h-3 rounded-full bg-gray-100 overflow-hidden">

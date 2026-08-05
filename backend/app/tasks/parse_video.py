@@ -80,9 +80,9 @@ def parse_video_task(self, video_id: int):
         visual_segments = asyncio.run(VisualService.analyze_frames(scene_info_list, fps=1.0))
         if visual_segments is None:
             video.status = VideoStatus.FAILED
-            video.error_message = str(e)
+            video.error_message = "visual analyze frames failed."
             db.commit()
-            raise
+            raise ValueError("visual analyze frames returned None")
 
         logger.info(f'visual_segments: {visual_segments}')
         video.progress = 80

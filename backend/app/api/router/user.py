@@ -1,14 +1,19 @@
 
 
 from datetime import datetime
+import logging
 import uuid
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, EmailStr, Field
+from sqlalchemy import select
 
-from app.api.deps import SessionDep
+from app.api.deps import AsyncSessionDep
 from app.api.security import get_password_hash
 from app.models.user import User
+
+
+logger = logging.getLogger("parse_video")
 
 
 router = APIRouter(prefix="/users", tags=["users"])
@@ -25,8 +30,9 @@ class UserPublic(UserBase):
     created_at: datetime | None = None
 
 @router.post("", response_model=UserPublic)
-async def create_user(db: SessionDep, user_create: UserCreate):
-    user = db.query(User).filter(User.email == user_create.email).first()
+async def create_user(db: AsyncSessionDep, user_create: UserCreate):
+    result = await db.execute(select(User).where(User.email == user_create.email))
+    user = result.scalar_one_or_none()
     if user:
         raise HTTPException(
             status_code=400,
@@ -35,14 +41,13 @@ async def create_user(db: SessionDep, user_create: UserCreate):
     hashed_password = get_password_hash(user_create.password)
     kwargs = {k: v for k, v in user_create.model_dump().items() if k in User.__table__.columns}
     new_user = User(**kwargs, hashed_password=hashed_password)
-    
-    db.add(new_user)
-    db.commit()
-    db.refresh(new_user)
 
-    print(f'new_user: {vars(new_user)}')
+    db.add(new_user)
+    await db.commit()
+    await db.refresh(new_user)
+
+    logger.info("created new user id=%s email=%s", new_user.id, new_user.email)
     kwargs = {k: v for k, v in vars(new_user).items() if k in UserPublic.model_fields.keys()}
 
-    print(f'new kwargs: {kwargs}')
     return UserPublic.model_validate(kwargs)
 

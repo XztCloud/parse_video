@@ -267,34 +267,38 @@ export const exportClonePlot = async (videoId: number): Promise<Blob> => {
   return response.data;
 };
 
-export const cloneVoices = async (cloneScriptId: number, autoRun: boolean=false): Promise <CloneSegmentsResponse> => {
-  const response = await api.post<CloneSegmentsResponse>(`${API_PREFIX}/clone/voices`, {cloneScriptId, autoRun});
+/**
+ * 推进复刻到指定阶段。
+ * 后端已合并原 /clone/voices、/segments、/images、/frames、/segment_videos、/video 六个接口为 /clone/phase。
+ * step: 2=配音 3=分镜 4=生图 5=参考帧 6=分镜视频 7=合并成片
+ */
+const clonePhase = async (cloneScriptId: number, step: number, autoRun: boolean = false): Promise<CloneSegmentsResponse> => {
+  const response = await api.post<CloneSegmentsResponse>(`${API_PREFIX}/clone/phase`, {cloneScriptId, autoRun, step});
   return response.data;
+}
+
+export const cloneVoices = async (cloneScriptId: number, autoRun: boolean=false): Promise <CloneSegmentsResponse> => {
+  return clonePhase(cloneScriptId, 2, autoRun);
 }
 
 export const cloneSegments = async (cloneScriptId: number, autoRun: boolean=false): Promise <CloneSegmentsResponse> => {
-  const response = await api.post<CloneSegmentsResponse>(`${API_PREFIX}/clone/segments`, {cloneScriptId, autoRun});
-  return response.data;
+  return clonePhase(cloneScriptId, 3, autoRun);
 }
 
 export const cloneImages = async (cloneScriptId: number, autoRun: boolean=false): Promise <CloneSegmentsResponse> => {
-  const response = await api.post<CloneSegmentsResponse>(`${API_PREFIX}/clone/images`, {cloneScriptId, autoRun});
-  return response.data;
+  return clonePhase(cloneScriptId, 4, autoRun);
 }
 
 export const cloneFrames = async (cloneScriptId: number, autoRun: boolean=false): Promise <CloneSegmentsResponse> => {
-  const response = await api.post<CloneSegmentsResponse>(`${API_PREFIX}/clone/frames`, {cloneScriptId, autoRun});
-  return response.data;
+  return clonePhase(cloneScriptId, 5, autoRun);
 }
 
 export const cloneSegmentVideo = async (cloneScriptId: number, autoRun: boolean=false): Promise <CloneSegmentsResponse> => {
-  const response = await api.post<CloneSegmentsResponse>(`${API_PREFIX}/clone/segment_videos`, {cloneScriptId, autoRun});
-  return response.data;
+  return clonePhase(cloneScriptId, 6, autoRun);
 }
 
 export const cloneMergeVideo = async (cloneScriptId: number, autoRun: boolean=false): Promise <CloneSegmentsResponse> => {
-  const response = await api.post<CloneSegmentsResponse>(`${API_PREFIX}/clone/video`, {cloneScriptId, autoRun});
-  return response.data;
+  return clonePhase(cloneScriptId, 7, autoRun);
 }
 
 export const exportCloneVoice = async (cloneVoiceId: number): Promise<Blob> => {

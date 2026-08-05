@@ -357,6 +357,24 @@ def get_image_info(file_path):
             'format': None
         }
         
+def is_video_file(file_path: str) -> bool:
+    """用 ffprobe 校验文件是否包含视频流，防止伪造扩展名。
+
+    Returns:
+        bool: 文件能解析出视频流返回 True，否则 False
+    """
+    try:
+        probe = ffmpeg.probe(file_path)
+        for stream in probe.get("streams", []):
+            if stream.get("codec_type") == "video":
+                return True
+        return False
+    except ffmpeg.Error:
+        return False
+    except Exception:
+        return False
+
+
 def get_video_duration_ffprobe(save_path: str) -> float:
     """使用 ffprobe 读取视频时长
 

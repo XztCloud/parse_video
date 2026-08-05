@@ -1,5 +1,6 @@
 from collections.abc import Generator
 from typing import Annotated
+import logging
 from fastapi import Cookie, Depends, HTTPException, Header, Request, status
 from fastapi.security import OAuth2PasswordBearer
 import jwt
@@ -16,6 +17,8 @@ from app.config import settings
 from jwt.exceptions import InvalidTokenError
 
 from app.models.user import TokenPayload, User
+
+logger = logging.getLogger("parse_video")
 
 def get_db():
     db = SessionLocal()
@@ -46,7 +49,7 @@ async def get_token(
 
     # 2. 再读取 Cookie
     if access_token:
-        print(f'find access_token: {access_token}')
+        logger.info("found access_token in cookie")
         return access_token
 
     raise HTTPException(
@@ -56,7 +59,7 @@ async def get_token(
 
 TokenDep = Annotated[str, Depends(get_token)]
 
-async def get_current_user(request: Request, session: SessionDep, token: TokenDep) -> User:
+async def get_current_user(request: Request, session: AsyncSessionDep, token: TokenDep) -> User:
     try:
         payload = jwt.decode(
             token, settings.SECRET_KEY, algorithms=[ALGORITHM]
@@ -67,7 +70,7 @@ async def get_current_user(request: Request, session: SessionDep, token: TokenDe
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Could not validate credentials",
         )
-    user = session.get(User, token_data.sub)
+    user = await session.get(User, token_data.sub)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     request.state.user_id=user.id
@@ -91,7 +94,6 @@ def get_token_from_request(request: Request) -> str | None:
 
 def user_id_identifier(request: Request) -> str:
     user_id = request.state.user_id
-    print(f'get user_id_identifier: {user_id}')
     if user_id:
         return f"user:{user_id}:{request.url.path}"
     return f"ip:{request.client.host}:{request.url.path}"
