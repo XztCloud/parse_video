@@ -4,8 +4,11 @@ import os
 from typing import List, NamedTuple, Union
 from scenedetect import AdaptiveDetector, ContentDetector, FrameTimecode, TimecodeLike, open_video, SceneManager, save_images, split_video_ffmpeg
 from scenedetect import split_video_ffmpeg
+from celery.utils.log import get_task_logger
 
 from app.util import make_dir
+
+logger = get_task_logger(__name__)
 
 def has_mp4_files(folder_path: str|Path):
     # 使用 rglob 可以连同【子文件夹】一起查找；如果只想找【当前目录】，把 rglob 改为 glob
@@ -43,7 +46,7 @@ class VideoProcessor:
         if output_path is None:
             base = os.path.splitext(video_path)[0]
             output_path = f"{base}.wav"
-        print(f'video_path:{video_path}, output_path:{output_path}')
+        logger.info(f'video_path:{video_path}, output_path:{output_path}')
         cmd = ["ffmpeg", "-i", video_path, "-vn", "-acodec", "pcm_s16le", "-ar", "16000", "-ac", "1", "-y", output_path]
         subprocess.run(cmd, check=True, capture_output=True)
         return output_path
@@ -84,16 +87,26 @@ class VideoProcessor:
 
         ret = split_video_ffmpeg(video_path, scene_list, show_progress=True, output_dir=output_dir)
         if ret != 0:
-            print(f'split_video_ffmpeg failed. ret: {ret}')
+            logger.error(f'split_video_ffmpeg failed. ret: {ret}')
             return result
         video_list = get_sorted_mp4_files(output_dir)
         print(f'split video list is {video_list}, len is {len(video_list)}')
         if len(video_list) != len(scene_list):
-            print(f'error, split video len != scene len')
+            logger.error(f'error, split video len != scene len')
             return result
         
         base_dir = Path(output_dir)
-        new_width = min(video.frame_size[0], 720)
+        
+        # 设定最长边的上限（如 720 或 960）
+        max_dimension = 720
+
+        width, height = video.frame_size
+        # 计算缩放比例，确保长边不超标
+        scale = min(1.0, max_dimension / float(max(width, height)))
+
+        new_width = int(width * scale)
+        new_height = int(height * scale)
+        
         for i, scene in enumerate(scene_list):
             start_time, end_time = scene
             duration_seconds = end_time.get_seconds() - start_time.get_seconds()
@@ -106,6 +119,7 @@ class VideoProcessor:
                 num_images=dynamic_num,
                 image_extension="jpg",
                 width=new_width,
+                height=new_height,
                 output_dir= str(base_dir / f'scene_{i}/')
             )
 

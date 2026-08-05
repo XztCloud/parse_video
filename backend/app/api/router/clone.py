@@ -1,18 +1,19 @@
 
 
 import os
-from pathlib import Path
-from typing import Optional
+from pathlib import Path as FilePath
+from typing import Literal, Optional
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Body, HTTPException, Path, Request
 from fastapi.responses import FileResponse, JSONResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy import select, update
 
 from app.database import SessionLocal
-from app.models.script import CloneImage, CloneVoice, CloneScript, CloneScriptSegment, CloneVideo, Script, CloneStatus
-from app.tasks.parse_video import clone_video_task
-from app.util import logger
-from app.api.deps import SessionDep
+from app.models.script import CloneRoleImage, CloneSceneImage, CloneSegmentImg, CloneSegmentVideo, CloneVoice, CloneScript, CloneScriptSegment, CloneVideo, GenerateStatus, Script, CloneStatus
+from app.tasks.parse_video import clone_video_task, regenerate_task
+from app.util import REGENERATE_TYPE, ImageRegenerateInput, ImageRegenerateResponse, logger
+from app.api.deps import AsyncSessionDep, SessionDep
 from app.api.deps import limiter
 
 
@@ -177,14 +178,16 @@ async def get_clone_scirpt(clone_script_id: int, db: SessionDep):
         voices = []
         segments = []
         images = []
-        videos = []
+        frames: list[CloneSegmentImg] = []
+        segment_videos: list[CloneSegmentVideo] = []
+        video: dict|None = None
 
         if clone_script.clone_status in plot_complete_status or \
             (clone_script.clone_status == CloneStatus.FAILED and clone_script.clone_progress >= 20):
             clone_parse_file_path = clone_script.clone_parse_file_path
             if clone_parse_file_path is None:
                 raise HTTPException(status_code=404, detail="复刻视频脚本未生成")
-            clone_parse_file = Path(clone_parse_file_path)
+            clone_parse_file = FilePath(clone_parse_file_path)
             print(f'clone_parse_file_path: {clone_parse_file_path}')
             if clone_parse_file.is_file():
                 with open(clone_parse_file_path, 'r', encoding='utf-8') as f:
@@ -193,8 +196,28 @@ async def get_clone_scirpt(clone_script_id: int, db: SessionDep):
                 # 正确：使用 CloneVoice 自己的创建时间排序
                 voices = db.query(CloneVoice).filter(CloneVoice.script_id == clone_script.id).order_by(CloneVoice.sort_order).all()
                 segments = db.query(CloneScriptSegment).filter(CloneScriptSegment.script_id == clone_script.id).order_by(CloneScriptSegment.start_time).all()
-                images = db.query(CloneImage).filter(CloneImage.script_id == clone_script.id).order_by(CloneImage.created_at).all()
-                videos = db.query(CloneVideo).filter(CloneVideo.video_id == clone_script.id).all()
+                role_images = db.query(CloneRoleImage).filter(CloneRoleImage.script_id == clone_script.id).order_by(CloneRoleImage.created_at).all()
+                scene_images = db.query(CloneSceneImage).filter(CloneSceneImage.script_id == clone_script.id).order_by(CloneSceneImage.created_at).all()
+                
+                for segment in segments:
+                    segment_images = db.query(CloneSegmentImg).filter(CloneSegmentImg.clone_script_sgement_id == segment.id).order_by(CloneSegmentImg.created_at).all()
+                    if segment_images:
+                        frames.extend(segment_images)
+                    segment_video = db.query(CloneSegmentVideo).filter(CloneSegmentVideo.clone_script_sgement_id == segment.id).first()
+                    if segment_video:
+                        segment_videos.append(segment_video)
+                
+                images = [{"id": img.id, "name": img.role_name, "width": img.width, "height": img.height, "desc": img.desc, "prompt": img.prompt, "seed": str(img.seed) if img.seed else None, "category":"role", 'status': img.status.value, 'version': img.version } for img in role_images]
+                images += [{"id": img.id, "name": img.scene_name, "width": img.width, "height": img.height, "desc": img.desc, "prompt": img.prompt, "seed": str(img.seed) if img.seed else None, "category":"scene", 'status': img.status.value, 'version': img.version } for img in scene_images]
+                
+                video_data = db.query(CloneVideo).filter(CloneVideo.video_id == clone_script.id).first()
+                if video_data:
+                    video = {
+                        "id": video_data.id,
+                        "category": "video",
+                        "duration": video_data.duration,
+                    }
+                # logger.info(f'images is {images}')
             else:
                 raise HTTPException(status_code=404, detail="复刻视频脚本未生成")
         
@@ -232,21 +255,51 @@ async def get_clone_scirpt(clone_script_id: int, db: SessionDep):
             ],
             "images": [
                 {
-                    "id": img.id,
-                    "role_name": img.role_name,
-                    "width": img.width,
-                    "height": img.height,
-                    "desc": img.desc,
-                    "prompt": img.prompt,
+                    "id": img['id'],
+                    "name": img['name'],
+                    "width": img['width'],
+                    "height": img['height'],
+                    "desc": img['desc'],
+                    "prompt": img['prompt'],
+                    "seed": img['seed'],
+                    "category": img['category'],
+                    'status': img['status'],
+                    'version': img['version'],
                 }
                 for img in images
             ],
-            "videos": [
+            "frames": [
                 {
-                    "id": video.id
+                    "id": frame.id,
+                    "name": f"分镜{i+1} 首帧",
+                    "width": frame.width,
+                    "height": frame.height,
+                    "desc": frame.desc,
+                    "prompt": frame.prompt,
+                    "seed": frame.seed,
+                    "category": 'frame',
+                    'status': frame.status,
+                    'version': frame.version,
                 }
-                for video in videos
-            ]
+                for i, frame in enumerate(frames)
+            ],
+            "segment_videos": [
+                {
+                    "id": seg_v.id,
+                    "name": f'分镜{i+1} 视频',
+                    "width": seg_v.width,
+                    "height": seg_v.height,
+                    "desc": seg_v.desc,
+                    "prompt": seg_v.prompt,
+                    "seed": seg_v.seed,
+                    "category": 'segment_video',
+                    'status': seg_v.status,
+                    'version': seg_v.version,
+                    
+                }
+                for i, seg_v in enumerate(segment_videos)
+            ],
+            "video": video
         }
 
     except Exception as e:
@@ -263,7 +316,7 @@ async def export_voice(voice_id: str, db: SessionDep):
     try:
         logger.info(f'receive get voice, id:{voice_id}')
         clone_voice = db.query(CloneVoice).filter(CloneVoice.id == voice_id).first()
-        path = Path(clone_voice.path)
+        path = FilePath(clone_voice.path)
         if not os.path.exists(path):
             raise HTTPException(status_code=404, detail="音频文件未找到")
         
@@ -295,7 +348,7 @@ async def export_clone_script(clone_script_id: int, db: SessionDep):
         clone_parse_file_path = clone_script.clone_parse_file_path
         if clone_parse_file_path is None:
             raise HTTPException(status_code=404, detail="复刻视频脚本未生成")
-        clone_parse_file = Path(clone_parse_file_path)
+        clone_parse_file = FilePath(clone_parse_file_path)
         print(f'clone_parse_file_path: {clone_parse_file_path}')
         if clone_parse_file.is_file():
             return FileResponse(
@@ -312,19 +365,146 @@ async def export_clone_script(clone_script_id: int, db: SessionDep):
         print(f"导出复刻脚本信息失败: {str(e)}")
         raise HTTPException(status_code=400, detail=f"导出复刻脚本信息失败: {str(e)}")
 
-@router.get("/image/{image_id}")
-async def export_image(image_id: int, db: SessionDep):
-    logger.info(f'receive get image, id:{image_id}')
+@router.get("/image/{category}/{image_id}")
+async def export_image(
+    db: SessionDep,
+    category: Literal['role', 'scene', 'frame'] = Path(..., description="图片分类 (src)"), 
+    image_id: int = Path(..., description="图片ID")
+):
+    logger.info(f'receive get image, category:{category}, id:{image_id}')
     try:
-        clone_voice = db.query(CloneImage).filter(CloneImage.id == image_id).first()
-        file = Path(clone_voice.path)
+        match category:
+            case 'role':
+                clone_image = db.query(CloneRoleImage).filter(CloneRoleImage.id == image_id).first()
+            case 'scene':
+                clone_image = db.query(CloneSceneImage).filter(CloneSceneImage.id == image_id).first()
+            case 'frame':
+                clone_image = db.query(CloneSegmentImg).filter(CloneSegmentImg.id == image_id).first()
+            case _:
+                raise HTTPException(status_code=404, detail="check category in [role, scene, segemnt]")
+        
+        if not clone_image or not clone_image.path:
+            logger.warning(f"图片记录不存在, category: {category}, id: {image_id}")
+            raise HTTPException(status_code=404, detail="Image record not found in database")
+    
+        file = FilePath(clone_image.path)
         if file.exists():
             return FileResponse(file)
 
     except Exception as e:
         logger.error(f"获取图片{image_id}失败: {str(e)}")
         logger.exception('获取图片失败')
-        raise HTTPException(status_code=404, detail="Image not found")
+        raise HTTPException(status_code=404, detail=f"Image not found {str(e)}")
+
+@router.get("/video/{category}/{video_id}")
+async def export_image(
+    db: SessionDep,
+    category: Literal['segment_video', 'merged'] = Path(..., description="视频分类 (src)"), 
+    video_id: int = Path(..., description="图片ID")
+):
+    logger.info(f'receive get image, category:{category}, id:{video_id}')
+    try:
+        match category:
+            case 'segment_video':
+                segment_video = db.query(CloneSegmentVideo).filter(CloneSegmentVideo.id == video_id).first()
+                file = FilePath(segment_video.path)
+            case 'merged':
+                merged_video = db.query(CloneVideo).filter(CloneVideo.id == video_id).first()
+                file = FilePath(merged_video.file_path)
+            case _:
+                raise HTTPException(status_code=404, detail="check category in [role, scene, segemnt]")
+       
+        if file.exists():
+            return FileResponse(file)
+
+    except Exception as e:
+        logger.error(f"获取图片{video_id}失败: {str(e)}")
+        logger.exception('获取图片失败')
+        raise HTTPException(status_code=404, detail=f"Image not found {str(e)}")
+
+
+ 
+@router.patch("/{category}/{id}/regenerate")
+@limiter.limit("1/5second")
+async def regenerate_image(
+    request: Request,
+    session: AsyncSessionDep,
+    category: Literal['role', 'scene', 'frame'] = Path(..., description="图片分类 (src)"),
+    id: int = Path(..., description="图片ID"),
+    payload: ImageRegenerateInput = Body(..., description="生成参数")
+):
+    logger.info(f'receive regenerate_image, category:{category}, id:{id}, payload: {payload.model_dump()}')
+    try:
+        data_cls = None
+        if category == 'role':
+            data_cls = CloneRoleImage
+        elif category == 'scene':
+            data_cls = CloneSceneImage
+        elif category == 'frame':
+            data_cls = CloneSegmentImg
+        else:
+            raise ValueError('check category')
+        
+        logger.info(f'data_cls is {data_cls}')
+        result = await session.execute(
+            update(data_cls)
+            .where(
+                data_cls.id == id,
+                data_cls.status != GenerateStatus.PROCESSING
+            )
+            .values({
+                "status": GenerateStatus.PROCESSING
+            })
+        )
+        await session.commit()
+        affected_rows = result.rowcount
+        
+        if affected_rows == 0:
+            raise HTTPException(
+                status_code=404,
+                detail="regenerate_image not found or status is not PROCESSING"
+            )
+        
+        category = REGENERATE_TYPE.IMAGE.value + category
+        regenerate_task.delay(category, id, payload.model_dump())
+    except HTTPException as e:
+        logger.exception('重新生成图片失败')
+        raise e
+    except Exception as e:
+        logger.exception('重新生成图片失败')
+        raise HTTPException(status_code=400, detail=f"重新生成图片失败: {str(e)}")
+    
+@router.get("/{category}/{id}/regenerate", response_model=ImageRegenerateResponse)
+async def regenerate_image_status(
+    session: AsyncSessionDep,
+    category: Literal['role', 'scene', 'frame'] = Path(..., description="分类 (src)"),
+    id: int = Path(..., description="图片ID"),
+):
+    try:
+        image_info = None
+        match category:
+            case 'role':
+                res = await session.execute(select(CloneRoleImage).where(CloneRoleImage.id == id))
+                image_info = res.scalar_one()
+            case 'scene':
+                res = await session.execute(select(CloneSceneImage).where(CloneSceneImage.id == id))
+                image_info = res.scalar_one()
+            case 'frame':
+                res = await session.execute(select(CloneSegmentImg).where(CloneSegmentImg.id == id))
+                image_info = res.scalar_one()
+            case _:
+                raise HTTPException(status_code=404, detail='category not find.')
+        if not image_info:
+            raise HTTPException(status_code=404, detail='category not find.')
+        
+        logger.info(f'image_info: {vars(image_info)}')
+        return ImageRegenerateResponse.model_validate(image_info)
+    except HTTPException as e:
+        logger.exception('get image status error.')
+        raise
+    except Exception as e:
+        logger.exception('get image status error.')
+        raise HTTPException(status_code=400, detail=f"重新生成图片失败: {str(e)}")
 
 @router.post("/voices")
 async def clone_voices(request: CloneStoryboardRequest, db: SessionDep):
@@ -381,7 +561,7 @@ async def clone_segments(request: CloneStoryboardRequest, db: SessionDep):
         raise HTTPException(status_code=400, detail=f"复刻失败: {str(e)}")
     
 @router.post("/images")
-async def clone_segments(request: CloneStoryboardRequest, db: SessionDep):
+async def clone_images(request: CloneStoryboardRequest, db: SessionDep):
     try:
         affected_rows = db.query(CloneScript).filter( 
             CloneScript.id == request.clone_script_id, 
@@ -406,3 +586,88 @@ async def clone_segments(request: CloneStoryboardRequest, db: SessionDep):
         print(f"复刻失败: {str(e)}")
         raise HTTPException(status_code=400, detail=f"复刻失败: {str(e)}")
     
+@router.post("/frames")
+async def clone_frames(request: CloneStoryboardRequest, db: SessionDep):
+    try:
+        logger.info(f'clone_frames receive request: {request.model_dump()}')
+        affected_rows = db.query(CloneScript).filter( 
+            CloneScript.id == request.clone_script_id, 
+            CloneScript.clone_status.in_([CloneStatus.IMAGE_DONE, CloneStatus.FRAME_DONE])
+            ).update({
+                "clone_status": CloneStatus.FRAME,
+                "clone_progress": 45,
+                "clone_error_message": None
+            })
+        db.commit()
+        if affected_rows == 0:
+            raise HTTPException(status_code=404, detail="任务已在运行或状态不正确")
+        
+        clone_script = db.query(CloneScript).filter(CloneScript.id == request.clone_script_id).first()
+        if not clone_script:
+            raise HTTPException(status_code=404, detail="复刻视频脚本不存在，请先生成视频脚本")
+
+        clone_video_task.delay(clone_script.id, 5, request.auto_run)
+        return {"id": clone_script.id, "status": clone_script.clone_status, "progress": clone_script.clone_progress}
+
+    except Exception as e:
+        print(f"复刻失败: {str(e)}")
+        raise HTTPException(status_code=400, detail=f"复刻失败: {str(e)}")
+
+
+@router.post("/segment_videos")
+async def clone_segment_videos(request: CloneStoryboardRequest, db: SessionDep):
+    try:
+        logger.info(f'clone_segment_videos receive request: {request.model_dump()}')
+        affected_rows = db.query(CloneScript).filter( 
+            CloneScript.id == request.clone_script_id, 
+            CloneScript.clone_status.in_([CloneStatus.IMAGE_DONE, CloneStatus.FRAME_DONE])
+            ).update({
+                "clone_status": CloneStatus.SEGMENT_VIDEO,
+                "clone_progress": 60,
+                "clone_error_message": None
+            })
+        db.commit()
+        if affected_rows == 0:
+            raise HTTPException(status_code=404, detail="任务已在运行或状态不正确")
+        
+        clone_script = db.query(CloneScript).filter(CloneScript.id == request.clone_script_id).first()
+        if not clone_script:
+            raise HTTPException(status_code=404, detail="复刻视频脚本不存在，请先生成视频脚本")
+
+        clone_video_task.delay(clone_script.id, 6, request.auto_run)
+        return {"id": clone_script.id, "status": clone_script.clone_status, "progress": clone_script.clone_progress}
+
+    except Exception as e:
+        print(f"复刻失败: {str(e)}")
+        raise HTTPException(status_code=400, detail=f"复刻失败: {str(e)}")
+
+
+@router.post("/video")
+async def clone_merge_video(request: CloneStoryboardRequest, db: SessionDep):
+    try:
+        affected_rows = db.query(CloneScript).filter( 
+            CloneScript.id == request.clone_script_id, 
+            CloneScript.clone_status.in_([CloneStatus.IMAGE_DONE, CloneStatus.FRAME_DONE])
+            ).update({
+                "clone_status": CloneStatus.MERGE_VIDEO,
+                "clone_progress": 95,
+                "clone_error_message": None
+            })
+        db.commit()
+        if affected_rows == 0:
+            raise HTTPException(status_code=404, detail="任务已在运行或状态不正确")
+        
+        clone_script = db.query(CloneScript).filter(CloneScript.id == request.clone_script_id).first()
+        if not clone_script:
+            raise HTTPException(status_code=404, detail="复刻视频脚本不存在，请先生成视频脚本")
+
+        clone_video_task.delay(clone_script.id, 7, request.auto_run)
+        return {"id": clone_script.id, "status": clone_script.clone_status, "progress": clone_script.clone_progress}
+
+    except Exception as e:
+        print(f"复刻失败: {str(e)}")
+        raise HTTPException(status_code=400, detail=f"复刻失败: {str(e)}")
+
+
+
+

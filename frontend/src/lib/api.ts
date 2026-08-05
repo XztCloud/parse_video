@@ -67,11 +67,15 @@ export interface CloneVoice {
 
 export interface CloneImage {
   id: number;
-  role_name: string;
+  name: string;
   width: number;
   height: number;
   desc: string | null;
-  prompt: string | null;
+  prompt: string;
+  seed: string | null;
+  category: string;
+  status: string;
+  version: number;
 }
 
 export interface ScriptResponse {
@@ -118,8 +122,24 @@ export interface CloneSegmentsResponse {
   progress: number;
 }
 
-export interface CloneVideo {
+
+export interface CloneSegmentVideo {
   id: number;
+  name: string;
+  width: number;
+  height: number;
+  desc: string | null;
+  prompt: string;
+  seed: string | null;
+  category: string;
+  status: string;
+  version: number;
+}
+
+export interface CloneVido {
+  "id": number;
+  "category": string;
+  "duration": number;
 }
 
 export interface ClonseScriptResponse {
@@ -128,12 +148,31 @@ export interface ClonseScriptResponse {
   voices: CloneVoice[];
   segments: ScriptSegment[];
   images: CloneImage[];
-  videos: CloneVideo[];
+  frames: CloneImage[];
+  segment_videos: CloneSegmentVideo[];
+  video: CloneVido|null;
 }
 
 export interface Toekn {
   access_token: string;
   token_type: string;
+}
+
+export interface RegenerateRequest {
+  prompt: string;
+  width: number|null;
+  height: number|null;
+  seed: string|null;
+}
+
+export interface RegenerateResponse {
+  status: string;
+  id: number;
+  width: number;
+  height: number;
+  prompt: string;
+  seed: string;
+  version: number;
 }
 
 export const getDefaultCloneRequest = (videoId: number): ClonePlotRequest => ({
@@ -155,7 +194,11 @@ export enum CloneStatus {
   SEGMENTS_DONE = "SEGMENTS_DONE",
   IMAGE = "IMAGE",
   IMAGE_DONE = "IMAGE_DONE",
-  VIDEO = "VIDEO",
+  FRAME = "FRAME",
+  FRAME_DONE = "FRAME_DONE",
+  SEGMENT_VIDEO = "SEGMENT_VIDEO",
+  SEGMENT_VIDEO_DONE = "SEGMENT_VIDEO_DONE",
+  MERGE_VIDEO = "MERGE_VIDEO",
   DONE = "DONE",
   FAILED = "FAILED",
 }
@@ -239,14 +282,34 @@ export const cloneImages = async (cloneScriptId: number, autoRun: boolean=false)
   return response.data;
 }
 
+export const cloneFrames = async (cloneScriptId: number, autoRun: boolean=false): Promise <CloneSegmentsResponse> => {
+  const response = await api.post<CloneSegmentsResponse>(`${API_PREFIX}/clone/frames`, {cloneScriptId, autoRun});
+  return response.data;
+}
+
+export const cloneSegmentVideo = async (cloneScriptId: number, autoRun: boolean=false): Promise <CloneSegmentsResponse> => {
+  const response = await api.post<CloneSegmentsResponse>(`${API_PREFIX}/clone/segment_videos`, {cloneScriptId, autoRun});
+  return response.data;
+}
+
+export const cloneMergeVideo = async (cloneScriptId: number, autoRun: boolean=false): Promise <CloneSegmentsResponse> => {
+  const response = await api.post<CloneSegmentsResponse>(`${API_PREFIX}/clone/video`, {cloneScriptId, autoRun});
+  return response.data;
+}
+
 export const exportCloneVoice = async (cloneVoiceId: number): Promise<Blob> => {
   const response = await api.get(`${API_PREFIX}/clone/voice/${cloneVoiceId}`, { responseType: "blob" });
   return response.data;
 }
 
-export function getImageUrl(id: number): string {
+export function getImageUrl(category:string, id: number): string {
   const base = api.defaults.baseURL ?? "";
-  return `${base}${API_PREFIX}/clone/image/${id}`;
+  return `${base}${API_PREFIX}/clone/image/${category}/${id}`;
+}
+
+export function getVideoUrl(category:string, id: number): string {
+  const base = api.defaults.baseURL ?? "";
+  return `${base}${API_PREFIX}/clone/video/${category}/${id}`;
 }
 
 export const login = async (params: URLSearchParams): Promise<void> => {
@@ -256,8 +319,17 @@ export const login = async (params: URLSearchParams): Promise<void> => {
 }
 
 export const logout = async (): Promise<void> => {
-  const response = await api.post(`${API_PREFIX}/login/logout`);
+  await api.post(`${API_PREFIX}/login/logout`);
   localStorage.removeItem('token');
   localStorage.removeItem('username')
+}
+
+export const regenerate = async (category: string, id: number, payload:RegenerateRequest): Promise<void> => {
+  await api.patch(`${API_PREFIX}/clone/${category}/${id}/regenerate`, payload);
+}
+
+export const getRegenerateStatus = async (category: string, id: number) : Promise<RegenerateResponse> => {
+  const response = await api.get(`${API_PREFIX}/clone/${category}/${id}/regenerate`)
+  return response.data
 }
 

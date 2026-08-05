@@ -1,9 +1,12 @@
 "use client";
 
 import {
+  cloneFrames,
   cloneImages,
+  cloneMergeVideo,
   cloneSegments,
   CloneSegmentsResponse,
+  cloneSegmentVideo,
   CloneStatus,
   CloneStatusResponse,
   cloneVoices,
@@ -50,6 +53,15 @@ export default function CloneProgress({
       } else if (clone_status === "SEGMENTS_DONE") {
         const data = await cloneImages(cloneId, autoRun);
         console.log("cloneSegments response is", data);
+      } else if (clone_status === "IMAGE_DONE") {
+        const data = await cloneFrames(cloneId, autoRun);
+        console.log("cloneFrames response is", data);
+      } else if (clone_status === "FRAME_DONE") {
+        const data = await cloneSegmentVideo(cloneId, autoRun);
+        console.log("cloneSegmentVideo response is", data);
+      } else if (clone_status === "SEGMENT_VIDEO_DONE") {
+        const data = await cloneMergeVideo(cloneId, autoRun);
+        console.log("cloneMergeVideo response is", data);
       }
     } catch (err: any) {
       setError(err.response?.data?.detail || "失败");
@@ -81,6 +93,16 @@ export default function CloneProgress({
         data.clone_status === CloneStatus.IMAGE_DONE) {
         console.log('send status change IMAGE_DONE.')
         onStatusChange(CloneStatus.IMAGE_DONE); // 剧情脚本完成
+      }
+      if (prevStatus !== data.clone_status && 
+        data.clone_status === CloneStatus.FRAME_DONE) {
+        console.log('send status change FRAME_DONE.')
+        onStatusChange(CloneStatus.FRAME_DONE); // 剧情脚本完成
+      }
+      if (prevStatus !== data.clone_status && 
+        data.clone_status === CloneStatus.SEGMENT_VIDEO_DONE) {
+        console.log('send status change SEGMENT_VIDEO_DONE.')
+        onStatusChange(CloneStatus.SEGMENT_VIDEO_DONE); // 剧情脚本完成
       }
       if (prevStatus !== data.clone_status) {
         console.log("setPrevStatus", prevStatus)
@@ -116,7 +138,9 @@ export default function CloneProgress({
     (status.clone_status === "PLOT_DONE" ||
       status.clone_status === "VOICE_DONE" ||
       status.clone_status === "SEGMENTS_DONE" ||
-      status.clone_status === "IMAGE_DONE");
+      status.clone_status === "IMAGE_DONE" ||
+      status.clone_status === "FRAME_DONE" ||
+      status.clone_status === "SEGMENT_VIDEO_DONE");
 
   const canRetry =
     status &&
@@ -124,6 +148,8 @@ export default function CloneProgress({
       status.clone_status === "VOICE_DONE" ||
       status.clone_status === "SEGMENTS_DONE" ||
       status.clone_status === "IMAGE_DONE" ||
+      status.clone_status === "FRAME_DONE" ||
+      status.clone_status === "SEGMENT_VIDEO_DONE" ||
       status.clone_status === "DONE");
 
   const canSkip =
@@ -141,7 +167,11 @@ export default function CloneProgress({
     SEGMENTS_DONE: "复刻分镜完成",
     IMAGE: "生成图片中",
     IMAGE_DONE: "生成图片完成",
-    VIDEO: "制作视频中",
+    FRAME: "生成参考帧中",
+    FRAME_DONE: "生成参考帧完成",
+    SEGMENT_VIDEO: "制作视频中",
+    SEGMENT_VIDEO_DONE: "制作视频完成",
+    MERGE_VIDEO: "融合视频中",
     DONE: "处理完成",
     FAILED: "处理失败",
   };
@@ -164,7 +194,9 @@ export default function CloneProgress({
     VOICE_DONE: "PLOT_DONE",
     SEGMENTS_DONE: "VOICE_DONE",
     IMAGE_DONE: "SEGMENTS_DONE",
-    DONE: "IMAGE_DONE"
+    FRAME_DONE: "IMAGE_DONE",
+    SEGMENT_VIDEO_DONE: "FRAME_DONE",
+    DONE: "SEGMENT_VIDEO_DONE"
   }
 
   const retryStatus = status

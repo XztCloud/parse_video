@@ -1,6 +1,7 @@
 import asyncio
 import os, uuid
-from fastapi import APIRouter, Depends, Request, UploadFile, File, HTTPException
+import aiofiles
+from fastapi import APIRouter, Depends, Request, UploadFile, File, HTTPException, status
 from pydantic import BaseModel
 
 from app.api.deps import SessionDep
@@ -9,7 +10,7 @@ from ...models.video import Video, VideoStatus, VideoSource
 from ...config import settings
 from ...tasks.parse_video import parse_video_task
 from ...services.douyin_parser import DouyinParser
-from app.util import logger
+from app.util import MAX_DURATION_SECONDS, MAX_FILE_SIZE, get_video_duration_ffprobe, logger
 from app.api.deps import limiter
 
 router = APIRouter(prefix="/videos", tags=["videos"])
@@ -20,24 +21,58 @@ class DouyinRequest(BaseModel):
 @router.post("/upload")
 @limiter.limit("1/5second")
 async def upload_video(request: Request, db: SessionDep, file: UploadFile = File(...)):
+   
+    # 文件扩展名校验
     if not file.filename.lower().endswith((".mp4", ".mov", ".avi", ".mkv")):
         raise HTTPException(status_code=400, detail="不支持的视频格式")
-    os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
-    ext = os.path.splitext(file.filename)[1]
-    filename = f"{uuid.uuid4()}{ext}"
-    file_path = os.path.join(settings.UPLOAD_DIR, filename)
-    with open(file_path, "wb") as f:
-        f.write(await file.read())
-    abs_file_path = os.path.abspath(file_path)
-    print(f'abs_file_path:{abs_file_path}')
-    try:
+    # 如果请求头里包含了 content-length 并且超标，直接拒绝
+    if file.size and file.size > MAX_FILE_SIZE:
+        raise HTTPException(status_code=413, detail="文件体积超过 200MB 限制")
+    abs_file_path=''
+    try: 
+        os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
+        ext = os.path.splitext(file.filename)[1]
+        filename = f"{uuid.uuid4()}{ext}"
+        file_path = os.path.join(settings.UPLOAD_DIR, filename)
+        
+        total_written = 0
+        async with aiofiles.open(file_path, "wb") as f:
+            while content := await file.read(1024 * 1024):  # 每次读 1MB
+                total_written += len(content)
+                # 边写边校验实际文件体积，防止恶意绕过 Content-Length
+                if total_written > MAX_FILE_SIZE:
+                    raise HTTPException(
+                        status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+                        detail=f"传输文件过大，已超过上限 200MB"
+                    )
+                await f.write(content)
+        abs_file_path = os.path.abspath(file_path)
+        print(f'abs_file_path:{abs_file_path}')
+    
+        duration = await asyncio.to_thread(get_video_duration_ffprobe, abs_file_path)
+        
+        if duration > MAX_DURATION_SECONDS:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"视频时长过长 ({duration:.1f} 秒)，不能超过 {int(MAX_DURATION_SECONDS)} 秒（3 分钟）"
+            )
+            
         video = Video(title=file.filename, file_path=abs_file_path, status=VideoStatus.PENDING, progress=0)
         db.add(video)
         db.commit()
         db.refresh(video)
         parse_video_task.delay(video.id)
         return {"id": video.id, "filename": video.title, "status": video.status.value, "progress": video.progress}
+    except ValueError as e:
+        if os.path.exists(abs_file_path):
+            os.remove(abs_file_path)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"无法解析视频文件: {str(e)}"
+        )
     except Exception as e:
+        if os.path.exists(abs_file_path):
+            os.remove(abs_file_path)
         logger.exception(f'upload file failed. {str(e)}')
         raise HTTPException(status_code=400, detail=f"上传文件失败: {str(e)}")
 

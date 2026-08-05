@@ -1,4 +1,7 @@
 import os, json, asyncio
+import threading
+
+from pydantic import BaseModel
 from app.services.clone import begin_clone
 from app.celery_app import celery_app
 from app.database import SessionLocal
@@ -8,12 +11,33 @@ from app.services.video_processor import VideoProcessor
 from app.services.asr_service import ASRService
 from app.services.visual_service import VisualService
 from app.services.script_generator import ScriptGenerator
+from celery.signals import worker_process_init, worker_process_shutdown
+
+from app.util import ImageRegenerateInput
+from app.services.clone_image import regenerate_image
+from app.services.clone_frame import regenerate_segment_frame
 from ..config import settings
 
 from celery.utils.log import get_task_logger
+from app.tasks.process_loop_manager import process_loop
 
 
 logger = get_task_logger(__name__)
+
+
+@worker_process_init.connect
+def on_worker_init(*args, **kwargs):
+    """当 Celery fork 出 Worker 子进程后，在此子进程内初始化唯一的 Loop 和 DB 连接池
+    """
+    process_loop.init_process()
+
+@worker_process_shutdown.connect
+def on_worker_shutdown(*args, **kwargs):
+    """销毁进程中loop关联链接
+    """
+    process_loop.shutdown()
+    
+
 
 @celery_app.task(bind=True)
 def parse_video_task(self, video_id: int):
@@ -98,10 +122,29 @@ def parse_video_task(self, video_id: int):
     finally:
         db.close()
 
-loop = asyncio.new_event_loop()
-asyncio.set_event_loop(loop)
 
 @celery_app.task(bind=True)
-def clone_video_task(self, clone_script_id: int, step: int=1, auto_run: bool=False):
-    loop.run_until_complete(begin_clone(clone_script_id, step=step, auto_run=auto_run))
-    # asyncio.run(begin_clone(clone_script_id, step=step, auto_run=auto_run))
+def clone_video_task(self, clone_script_id: int, step: int=1, auto_run: bool=False) -> any:
+    """复刻视频worker
+
+    Args:
+        clone_script_id (int): 复刻信息id
+        step (int, optional): 执行步骤 plot voice segments image video. Defaults to 1.
+        auto_run (bool, optional): 是否自动执行下一步. Defaults to False.
+
+    Returns:
+        any: worker返回结果
+    """
+    return process_loop.run(begin_clone(clone_script_id, step=step, auto_run=auto_run))
+
+@celery_app.task(bind=True)
+def regenerate_task(self, category: str, id: int, payload: dict):
+    
+    main_category, detail_category = category.split('.')
+    logger.info(f'receive regenerate image msg:{main_category} - {detail_category}')
+    if main_category == 'image':
+        if detail_category in ['role', 'scene']:
+            process_loop.run(regenerate_image(detail_category, id, payload))
+        else:
+            process_loop.run(regenerate_segment_frame(id, payload))
+            

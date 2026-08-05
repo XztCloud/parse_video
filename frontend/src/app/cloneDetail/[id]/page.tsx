@@ -4,6 +4,7 @@ import CloneProgress from "@/components/CloneProgress";
 import ImageList from "@/components/ImagesList";
 import LogoutButton from "@/components/logout";
 import ScriptTimeline from "@/components/ScriptTimeline";
+import VideoList from "@/components/videosList";
 import VoiceList from "@/components/VoicesList";
 import {
   CloneStatus,
@@ -28,7 +29,7 @@ export default function ClonePage() {
     null,
   );
   const [activeTab, setActiveTab] = useState<
-    "raw" | "voices" | "timeline" | "images" | "videos"
+    "raw" | "voices" | "timeline" | "images" | "frames" | "segment_videos" | "video"
   >("raw");
 
   const onStatusChange = useCallback(async (cloneStatus: CloneStatus) => {
@@ -90,7 +91,9 @@ export default function ClonePage() {
     const fetchScript = async () => {
       try {
         const data = await getCloneScript(cloneId);
+        
         setCloneScript(data);
+        console.log(JSON.stringify(data, null, 2));
       } catch (err: any) {
         setError(err.response?.data?.detail || "获取脚本失败");
       } finally {
@@ -231,9 +234,31 @@ export default function ClonePage() {
                   </button>
 
                   <button
-                    onClick={() => setActiveTab("videos")}
+                    onClick={() => setActiveTab("frames")}
                     className={`px-4 py-2.5 font-medium transition-colors ${
-                      activeTab === "videos"
+                      activeTab === "frames"
+                        ? "border-b-2 border-blue-500 text-blue-600 font-semibold"
+                        : "text-gray-500 hover:text-gray-700"
+                    }`}
+                  >
+                    分镜帧
+                  </button>
+
+                  <button
+                    onClick={() => setActiveTab("segment_videos")}
+                    className={`px-4 py-2.5 font-medium transition-colors ${
+                      activeTab === "segment_videos"
+                        ? "border-b-2 border-blue-500 text-blue-600 font-semibold"
+                        : "text-gray-500 hover:text-gray-700"
+                    }`}
+                  >
+                    分镜视频
+                  </button>
+
+                  <button
+                    onClick={() => setActiveTab("video")}
+                    className={`px-4 py-2.5 font-medium transition-colors ${
+                      activeTab === "video"
                         ? "border-b-2 border-blue-500 text-blue-600 font-semibold"
                         : "text-gray-500 hover:text-gray-700"
                     }`}
@@ -311,6 +336,35 @@ export default function ClonePage() {
                   >
                     {cloneScript?.images ? (
                       <ImageList images={cloneScript.images}></ImageList>
+                    ) : (
+                      <div className="text-gray-500 text-center py-8">
+                        暂无音频
+                      </div>
+                    )}
+                  </div>
+                ) : activeTab === "frames" ? (
+                  <div
+                    className="prose prose-slate max-w-none 
+  prose-th:bg-slate-50 prose-th:px-4 prose-th:py-3 prose-th:text-slate-700 prose-th:font-semibold
+  prose-td:px-4 prose-td:py-3.5 prose-td:align-top prose-td:text-slate-600 [&_th:nth-child(3)]:min-w-[100px]"
+                  >
+                    {cloneScript?.frames ? (
+                      <ImageList images={cloneScript.frames}></ImageList>
+                    ) : (
+                      <div className="text-gray-500 text-center py-8">
+                        暂无音频
+                      </div>
+                    )}
+                  </div>
+                ) : activeTab === "segment_videos" ? (
+                  <div
+                    className="prose prose-slate max-w-none 
+  prose-th:bg-slate-50 prose-th:px-4 prose-th:py-3 prose-th:text-slate-700 prose-th:font-semibold
+  prose-td:px-4 prose-td:py-3.5 prose-td:align-top prose-td:text-slate-600 [&_th:nth-child(3)]:min-w-[100px]"
+                  >
+                  
+                    {cloneScript?.frames ? (
+                      <VideoList videos={cloneScript.segment_videos}></VideoList>
                     ) : (
                       <div className="text-gray-500 text-center py-8">
                         暂无音频

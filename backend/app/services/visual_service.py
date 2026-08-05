@@ -160,7 +160,7 @@ class VideoFrameSummarizer:
             context_text = (
                 "以下是之前已经总结的帧画面：\n"
                 + self.get_full_history()
-                + "\n\n请参考以上内容，结合下面新的四帧图像进行连贯描述："
+                + "\n\n请参考以上内容，结合下面新的图像进行连贯描述："
             )
             user_parts.append({"type": "text", "text": context_text})
         else:
@@ -169,7 +169,7 @@ class VideoFrameSummarizer:
                 "text": "请观察以下帧视频图像，描述画面内容：",
             })
 
-        # 依次添加四帧图像
+        # 依次添加图像
         for idx, path in enumerate(frame_paths):
             if not os.path.exists(path):
                 raise FileNotFoundError(f"图像文件不存在: {path}")

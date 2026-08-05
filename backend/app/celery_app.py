@@ -46,7 +46,7 @@ def start_io_worker():
     """ io 队列任务，低资源 """
     print("🚀 正在启动 Celery IO Worker...")
     try:
-        log_file = os.path.join(settings.LOG_DIR, "celery.log")
+        log_file = os.path.join(settings.LOG_DIR, "celery_io.log")
 
         worker = celery_app.Worker(
             loglevel="INFO",
@@ -67,7 +67,7 @@ def start_cpu_worker():
     """ cpu 队列任务，高资源消耗任务 """
     print("🚀 正在启动 Celery CPU Worker...")
     try:
-        log_file = os.path.join(settings.LOG_DIR, "celery.log")
+        log_file = os.path.join(settings.LOG_DIR, "celery_cpu.log")
 
         worker = celery_app.Worker(
             loglevel="INFO",

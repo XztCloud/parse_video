@@ -1,6 +1,7 @@
 
 import asyncio
 import json
+import os
 import aiohttp
 from urllib.parse import urlencode, urljoin
 import uuid
@@ -164,3 +165,68 @@ class ApiComfy:
                     raise Exception(
                         f"Request failed with status code {resp.status}: {resp.reason}"
                     )
+
+    async def queue_and_wait_videos(
+        self, wf: WrapComfy, output_node_title: str
+    ) -> dict[str, bytes]:
+        """
+        提交工作流并等待视频（或 Animated GIF）生成完成，随后下载视频文件。
+
+        Args:
+            wf (WrapComfy): 工作流包装对象。
+            output_node_title (str): 目标视频保存节点的标题（例如: "保存视频"）。
+
+        Returns:
+            dict[str, bytes]: 文件名映射到文件二进制内容的字典。
+        """
+        prompt = wf.workflow
+        prompt_id = await self.queue_prompt_and_wait(prompt)
+        history = await self.get_history(prompt_id)
+        video_node_id = wf.get_node_id(output_node_title)
+        
+        node_output = history[prompt_id]["outputs"].get(video_node_id, {})
+       
+        print("========== ComfyUI 返回的节点原始数据 ==========")
+        print(node_output)
+        print("==============================================")
+
+        # 视频保存节点的输出字段可能为 'gifs' 或 'videos'
+        video_list = (
+            node_output.get("images") 
+            or node_output.get("gifs") 
+            or node_output.get("videos") 
+            or []
+        )
+
+        if not video_list:
+            raise ValueError(f"节点 '{output_node_title}' (ID: {video_node_id}) 未返回任何视频数据。")
+
+        # 注意：获取视频与获取图片的 API 端点是一致的（均通过 /view 端点）
+        return {
+            item["filename"]: await self.get_image(
+                item["filename"], item["subfolder"], item["type"]
+            )
+            for item in video_list
+        }
+
+
+    async def download_and_save_videos(self, wf: WrapComfy, output_node_title: str, save_dir: str = "./downloads"):
+        """
+        提交任务并把生成的视频直接保存到本地文件夹
+        """
+        # 1. 获取视频的二进制数据字典 {filename: bytes}
+        videos_dict = await self.queue_and_wait_videos(wf, output_node_title)
+        
+        # 2. 确保保存目录存在
+        os.makedirs(save_dir, exist_ok=True)
+        
+        saved_paths = []
+        # 3. 写入文件
+        for filename, video_bytes in videos_dict.items():
+            file_path = os.path.join(save_dir, filename)
+            with open(file_path, "wb") as f:
+                f.write(video_bytes)
+            print(f"视频已保存至: {file_path}")
+            saved_paths.append(file_path)
+            
+        return saved_paths

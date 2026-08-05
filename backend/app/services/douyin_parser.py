@@ -3,7 +3,7 @@ import re
 import yt_dlp
 import os
 
-from app.util import retry_error, logger, timeout
+from app.util import MAX_DURATION_SECONDS, MAX_FILE_SIZE, retry_error, logger, timeout
 from ..config import settings
 from videodl import videodl
 from func_timeout import func_set_timeout, FunctionTimedOut
@@ -27,6 +27,21 @@ class DouyinParser:
         else:
             print("未找到链接")
             raise ValueError("无效的链接")
+        
+        info_opts = {'quiet': True, 'skip_download': True}
+
+        with yt_dlp.YoutubeDL(info_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+
+        # 手动校验参数
+        duration = info.get('duration', 0)
+        filesize = info.get('filesize') or info.get('filesize_approx') or 0
+
+        if duration > MAX_DURATION_SECONDS:
+            raise Exception(f"视频时长 ({duration}s) 超过上限")
+
+        if filesize > MAX_FILE_SIZE:
+            raise Exception(f"视频体积 ({filesize}bytes) 超过上限")
 
 
         abs_output_dir = os.path.abspath(output_dir)
@@ -42,14 +57,15 @@ class DouyinParser:
         
     @staticmethod
     def download_video(url: str, output_dir: str = None) -> tuple[str, str]:
-        go_on = False
+        # go_on = False
         try:
             return DouyinParser.download_video_yt(url, output_dir)
         except Exception as e:
             logger.warning(f'download yt failed. {e}')
-            go_on = True
-        if go_on:
-            return DouyinParser.download_video_dl(url, output_dir)
+            raise
+        #     go_on = True
+        # if go_on:
+        #     return DouyinParser.download_video_dl(url, output_dir)
         
     @staticmethod
     @retry_error(retries=2)

@@ -2,40 +2,41 @@
 
 import {
   CloneImage,
+  CloneSegmentVideo,
+  getVideoUrl,
   getImageUrl,
   getRegenerateStatus,
   regenerate,
   RegenerateResponse,
 } from "@/lib/api";
+import { setServers } from "dns";
 import { useEffect, useState } from "react";
 
-interface ScriptImageProps {
-  images: CloneImage[];
+interface ScriptVideoProps {
+  videos: CloneSegmentVideo[];
 }
 
-export default function ImageList({ images }: ScriptImageProps) {
-  const [openImageId, setOpenImageId] = useState<number | null>(null);
-  const [openImageSrc, setOpenImageSrc] = useState<string | null>(null);
+export default function VideoList({ videos }: ScriptVideoProps) {
+  // 记录当前播放的视频 ID
+  const [activeVideoId, setActiveVideoId] = useState<number | null>(null);
+  const [openVideoCategory, setOpenVideoCategory] = useState<string | null>(null);
 
-  // key = category + id
   const [regenStatus, setRegenStatus] = useState<Record<string, string>>({});
 
-
-
-  // 保存最新图片参数
-  const [imageParams, setImageParams] = useState<
-    Record<string, Partial<CloneImage>>
+  // 保存最新视频参数
+  const [videoParams, setVideoParams] = useState<
+    Record<string, Partial<CloneSegmentVideo>>
   >({});
 
-  const saveOpenImage = (src: string | null, id: number | null) => {
-    setOpenImageId(id);
-    setOpenImageSrc(src);
+  const saveOpenImage = (category: string | null, id: number | null) => {
+    setActiveVideoId(id);
+    setOpenVideoCategory(category);
   };
 
   /**
    * 轮询生成状态
    */
-  const getRegenImageStatus = async (category: string, id: number) => {
+  const getRegenVideoStatus = async (category: string, id: number) => {
     const key = category + id;
 
     const response: RegenerateResponse = await getRegenerateStatus(
@@ -50,7 +51,7 @@ export default function ImageList({ images }: ScriptImageProps) {
 
     // 更新图片参数
     if (response.status === "SUCCESS") {
-      setImageParams((prev) => ({
+      setVideoParams((prev) => ({
         ...prev,
         [key]: {
           width: response.width,
@@ -67,7 +68,7 @@ export default function ImageList({ images }: ScriptImageProps) {
     // PROCESSING / PENDING继续轮询
     if (response.status === "PROCESSING" || response.status === "PENDING") {
       setTimeout(() => {
-        getRegenImageStatus(category, id);
+        getRegenVideoStatus(category, id);
       }, 3000);
 
       return;
@@ -79,7 +80,7 @@ export default function ImageList({ images }: ScriptImageProps) {
     }
   };
 
-  const regenerateImage = async (
+  const regenerateVideo = async (
     category: string,
     id: number,
     width: number,
@@ -103,53 +104,70 @@ export default function ImageList({ images }: ScriptImageProps) {
     });
 
     // 开始轮询
-    getRegenImageStatus(category, id);
+    getRegenVideoStatus(category, id);
   };
 
+  const handlePlay = (e: React.SyntheticEvent<HTMLVideoElement>, category: string, id: number) => {
+    setActiveVideoId(id);
+    setOpenVideoCategory(category);
+
+    const currentVideoNode = e.currentTarget; // 获取当前播放的 video DOM 节点
+
+    // 获取页面上所有的 video 标签并暂停非当前 ID 的视频
+    const allVideos = document.querySelectorAll('video');
+    allVideos.forEach((video) => {
+      // 找到正在播放但不是当前被点击的视频，将其暂停
+      if (video !== currentVideoNode && !video.paused) {
+        video.pause();
+      }
+    });
+  };
+
+  console.log(`videos len: ${videos.length}`)
+
+  
 
   useEffect(() => {
-    if (!images || images.length === 0) return;
     const statusMap: Record<string, string> = {};
 
-    images.forEach((image) => {
-      const key = image.category + image.id;
-      console.log(`set ${key} status ${image.status}`)
-      statusMap[key] = image.status;
+    videos.forEach((video) => {
+      const key = video.category + video.id;
+      console.log(`set ${key} status ${video.status}`)
+      statusMap[key] = video.status;
     });
+
     setRegenStatus(statusMap);
 
-  }, [images]);
+  }, [videos]);
 
-  if (!images || images.length === 0) {
-    return <div className="text-gray-500 text-center py-8">暂无图片</div>;
+  if (videos.length === 0) {
+    return <div className="text-gray-500 text-center py-8">暂无视频</div>;
   }
-
 
   return (
     <div className="space-y-4">
-      {images.map((image) => {
-        const key = image.category + image.id;
+      {videos.map((video) => {
+        const key = video.category + video.id;
 
         const status = regenStatus[key];
         console.log(`${key} status: ${status}`)
 
-        const params = imageParams[key] ?? {};
-
+        const params = videoParams[key] ?? {};
         return (
           <div key={key} className="bg-white rounded-xl shadow border p-5">
             <div className="flex justify-between items-center">
               <div>
                 <span className="text-lg font-bold text-gray-800">
-                  {image.name}
+                  {video.name}
                 </span>
 
                 <span className="ml-4 px-2 py-1 rounded bg-blue-50 text-blue-600 text-sm">
-                  {params.width ?? image.width}x{params.height ?? image.height}
+                  {params.width ?? video.width}x{params.height ?? video.height}
                 </span>
               </div>
 
               <div>
-                <div className="text-gray-500 text-sm">{image.desc}</div>
+                <div className="text-gray-500 text-sm">{video.desc}</div>
 
                 <button
                   disabled={status === "PROCESSING" || status === "PENDING"}
@@ -162,13 +180,13 @@ export default function ImageList({ images }: ScriptImageProps) {
                   disabled:bg-gray-400
                   "
                   onClick={() =>
-                    regenerateImage(
-                      image.category,
-                      image.id,
-                      params.width ?? image.width,
-                      params.height ?? image.height,
-                      params.prompt ?? image.prompt,
-                      params.seed ?? image.seed,
+                    regenerateVideo(
+                      video.category,
+                      video.id,
+                      params.width ?? video.width,
+                      params.height ?? video.height,
+                      params.prompt ?? video.prompt,
+                      params.seed ?? video.seed,
                     )
                   }
                 >
@@ -182,7 +200,7 @@ export default function ImageList({ images }: ScriptImageProps) {
             <div className="flex justify-between items-center">
               <div className="basis-1/2">
                 <p className="text-gray-700 mb-1">
-                  {params.prompt ?? image.prompt}
+                  {params.prompt ?? video.prompt}
                 </p>
               </div>
 
@@ -198,35 +216,41 @@ export default function ImageList({ images }: ScriptImageProps) {
                   width: 500,
                   height: 300,
                 }}
-                onClick={() => saveOpenImage(image.category, image.id)}
+                onClick={() => saveOpenImage(video.category, video.id)}
               >
-                <img
-                  src={`${getImageUrl(image.category, image.id)}?v=${params.version ?? image.version}`}
+                <video
+                  src={`${getVideoUrl(video.category, video.id)}?v=${params.version ?? video.version}`}
+                  controls
+                  className="
+                    max-w-full 
+                    max-h-full 
+                    object-contain
+                  "
+                  // 当用户点击原生的播放按钮时触发
+                  onPlay={(e) => handlePlay(e, video.category, video.id)}
+                />
+                {/* <SingleVideoItem
+                  key={key}
+                  video={item}
+                  playingId={activeVideoId}
+                  onPlay={handlePlay}
+                /> */}
+                {/* <img
+                  src={`${getVideoUrl(video.category, video.id)}?v=${params.version ?? video.version}`}
                   className="
                   max-w-full 
                   max-h-full 
                   object-contain
                   "
-                />
+                /> */}
               </div>
             </div>
-            {openImageId === image.id && openImageSrc === image.category && (
-              <div
-                className="fixed inset-0 z-50 overflow-auto bg-black/80 cursor-zoom-out p-4 md:p-0 flex justify-center items-start"
-                onClick={() => saveOpenImage(null, null)}
-              >
-                <div className="relative max-w-[90vw] max-h-[90vh]">
-                  <img
-                    src={`${getImageUrl(image.category, image.id)}?v=${params.version ?? image.version}`}
-                    alt={` 原图`}
-                    className="w-full h-full object-scale-down rounded-sm"
-                  />
-                </div>
-              </div>
-            )}
+
+
           </div>
-        );
-      })}
+        )
+      })
+      }
     </div>
-  );
+  )
 }

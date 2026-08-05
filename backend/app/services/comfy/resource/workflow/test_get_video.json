@@ -1,0 +1,27 @@
+{
+  "1": {
+    "inputs": {
+      "filename_prefix": "LTX23-20260801173542",
+      "format": "mp4",
+      "codec": "h264",
+      "video": [
+        "2",
+        0
+      ]
+    },
+    "class_type": "SaveVideo",
+    "_meta": {
+      "title": "保存视频"
+    }
+  },
+  "2": {
+    "inputs": {
+      "file": "Dance1.mp4",
+      "video-preview": ""
+    },
+    "class_type": "LoadVideo",
+    "_meta": {
+      "title": "加载视频"
+    }
+  }
+}

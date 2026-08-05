@@ -1,5 +1,6 @@
 
 import asyncio
+import enum
 import functools
 import hashlib
 import logging
@@ -9,15 +10,71 @@ import re
 import shutil
 import threading
 import time
+from typing import Optional
 from PIL import Image
+import ffmpeg
 import httpx
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.config import settings
+from app.models.script import GenerateStatus
 
 DEFAULT_LOG_MAX_BYTES = 10 * 1024 * 1024  # 10 MB
 DEFAULT_LOG_BACKUP_COUNT = 5
 
+MAX_DURATION_SECONDS = 180.0 # 最大允许时长：3分钟 (180秒)
+MAX_FILE_SIZE = 200 * 1024 * 1024 # 最大允许文件大小：200 MB
+
 logger = logging.getLogger("parse_video")
+
+class REGENERATE_TYPE(enum.Enum):
+    """重新生成分类 """
+    PLOT = 'plot.'
+    VOICE = 'voice.'
+    SEGMENT = 'segment.'
+    IMAGE = 'image.'
+    VOIDE = 'video.'
+    
+class ImageRegenerateInput(BaseModel):
+    prompt: str = Field(..., min_length=1, max_length=4096, description="提示词")
+    width: int | None = Field(
+        default=None, 
+        ge=512, 
+        le=1920, 
+        multiple_of=8, # 限制必须是 8 的倍数（如 512, 520, 528...）
+        description="图片宽度"
+    )
+    height: int | None = Field(
+        default=None, 
+        ge=512, 
+        le=1920, 
+        multiple_of=8, # 限制必须是 8 的倍数（如 512, 520, 528...）
+        description="图片高度"
+    )
+    seed: str | None = Field(
+        default=None,
+        pattern=r"^\d+$",  # 确保传入的是纯数字字符串
+        description="随机种子"
+    )
+    
+class ImageRegenerateResponse(BaseModel):
+    # 允许从 ORM 对象/类属性中直接加载数据
+    model_config = ConfigDict(from_attributes=True)
+    status: GenerateStatus = Field(default=GenerateStatus.PENDING, description='图片生成状态')
+    id: int = Field(..., description='图片id')
+    width: int = Field(..., description='图片宽度')
+    height: int = Field(..., description='图片高度')
+    prompt: str = Field(..., description='图片提示词')
+    seed: str|None = Field(default=None, description="随机种子")
+    version: int = Field(..., description='版本号')
+    
+    @field_validator('seed', mode='before')
+    @classmethod
+    def convert_seed_to_str(cls, v):
+        if v is not None:
+            return str(v)  # ✅ 在验证前自动把 int 转换成 str
+        return v
+    
 
 def make_dir(dir_path: str|Path, re_create: bool=True):
     target_dir = Path(dir_path)
@@ -73,7 +130,7 @@ def async_retry_error(func=None, *, retries:int=3, delay:float=1.0):
                     try_cnt += 1
                     if try_cnt > retries:
                         print(f"[{func.__name__}] 已达到最大重试次数 ({retries})，抛出异常。")
-                        raise e
+                        raise
                     print(f"[{func.__name__}] 捕获异常，正在进行第 {try_cnt}/{retries} 次重试...")
                     await asyncio.sleep(delay)
         return wrapper
@@ -299,3 +356,31 @@ def get_image_info(file_path):
             'height': None,
             'format': None
         }
+        
+def get_video_duration_ffprobe(save_path: str) -> float:
+    """使用 ffprobe 读取视频时长
+
+    Args:
+        save_path (str): 文件路径
+
+    Returns:
+        float: 视频时长
+    """
+    try:
+        probe = ffmpeg.probe(save_path)
+        
+        if 'format' in probe and 'duration' in probe['format']:
+            return float(probe['format']['duration'])
+
+        # 备用方案：如果 format 中没有，尝试从第一个 video 流中提取 duration
+        video_streams = [s for s in probe.get('streams', []) if s.get('codec_type') == 'video']
+        if video_streams and 'duration' in video_streams[0]:
+            return float(video_streams[0]['duration'])
+            
+        raise ValueError("视频文件中未能找到有效的时长信息 (duration)")
+    
+    except ffmpeg.Error as e:
+        error_msg = e.stderr.decode('utf-8') if e.stderr else str(e)
+        raise ValueError(f"FFprobe 解析视频失败: {error_msg}")
+    
+    

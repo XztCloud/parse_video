@@ -14,7 +14,7 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.types import Command
 from sqlalchemy import delete, select
 from app.services.gen_voice import GenVoice, GenVoiceParam, Lines
-from app.database import AsyncSessionLocal, SessionLocal
+from app.tasks.process_loop_manager import process_loop
 from app.models.script import CloneScript, CloneStatus, CloneVoice
 from app.config import settings
 from app.util import calculate_duration_units, get_md5, make_dir
@@ -58,7 +58,7 @@ def log_node_start():
 async def preload_lines_voices(state: CloneVoiceState, config: RunnableConfig):
     ''' 文本转音频前的准备操作 '''
     log_node_start()
-    db = AsyncSessionLocal()
+    db = process_loop.AsyncSessionLocal()
     try:
         statment = await db.execute(select(CloneScript).where(CloneScript.id == state['clone_script_id']))
         clone_script = statment.scalar_one_or_none()
@@ -163,7 +163,7 @@ async def preload_lines_voices(state: CloneVoiceState, config: RunnableConfig):
 
 async def download_voices(state:CloneVoiceState, config: RunnableConfig):
     log_node_start()
-    db = AsyncSessionLocal()
+    db = process_loop.AsyncSessionLocal()
     try:
         voice_seek_info = state['voice_seek_info']
         if not isinstance(voice_seek_info, VoiceSeekInfo):
@@ -269,7 +269,7 @@ async def shourld_reset_voice_duration(state:CloneVoiceState):
 
 async def reset_lines_duration(state: CloneVoiceState):
     ''' 重新设置每句话的时长 '''
-    db = AsyncSessionLocal()
+    db = process_loop.AsyncSessionLocal()
     try:
         statment = await db.execute(select(CloneScript).where(CloneScript.id == state['clone_script_id']))
         clone_script = statment.scalar_one_or_none()
@@ -307,7 +307,7 @@ async def reset_lines_duration(state: CloneVoiceState):
 
 
 async def save_voice_info(state: CloneVoiceState):
-    db = AsyncSessionLocal()
+    db = process_loop.AsyncSessionLocal()
     try:
         voice_seek_info = state['voice_seek_info']
         if not isinstance(voice_seek_info, VoiceSeekInfo):

@@ -6,6 +6,8 @@ from app.services.gen_voice import GenVoice
 from celery.utils.log import get_task_logger
 from app.services.clone_voice import CustomVoiceContext, clone_voice_graph
 from app.services.clone_image import clone_image_graph
+from app.services.clone_frame import generate_segment_frame_prompt
+from app.services.clone_segment_video import generate_segments_video
 
 logger = get_task_logger(__name__)
 
@@ -31,9 +33,13 @@ async def should_select_next_step(state: CloneState):
     if step == 3:
         return 'storyboard_generation'
     if step == 4:
-        return 'image_generation'
+        return 'image_base_generation'
     if step == 5:
+        return 'segment_frame_generation'
+    if step == 6:
         return 'video_generation'
+    if step == 7:
+        return 'video_merge'
     return END
 
 async def plot_generation(state:CloneState):
@@ -97,15 +103,16 @@ async def storyboard_generation(state: CloneState):
         logger.info(f'catch error in storyboard_generation. {str(e)}')
         return {'error': str(e)}
     
-async def image_generation(state: CloneState):
+async def image_base_generation(state: CloneState):
     try:
-        logger.info('begin run storyboard_generation')
+        logger.info('begin run image_base_generation')
 
         input_data = {
             "clone_script_id": state["clone_script_id"],
             "character_manifest": None,
             "role_asset_library": {},
             "scene_asset_library": {},
+            "global_style": "",
             "retry_messages": "",
             "error": ""
         }
@@ -115,19 +122,43 @@ async def image_generation(state: CloneState):
             'step': 5
         }
     except Exception as e:
-        logger.info(f'catch error in storyboard_generation. {str(e)}')
+        logger.info(f'catch error in image_base_generation. {str(e)}')
+        return {'error': str(e)}
+    
+async def segment_frame_generation(state:CloneState):
+    try:
+        logger.info('begin run segment_frame_generation')
+        await generate_segment_frame_prompt(state["clone_script_id"])
+        return {
+            'step': 6
+        }
+    except Exception as e:
+        logger.info(f'catch error in segment_frame_generation. {str(e)}')
         return {'error': str(e)}
     
 async def video_generation(state: CloneState):
     try:
         logger.info('begin run video_generation')
+        await generate_segments_video(state["clone_script_id"])
         return {
-            'step': 6
+            'step': 7
         }
 
     except Exception as e:
         logger.info(f'catch error in video_generation. {str(e)}')
         return {'error': str(e)},
+
+async def video_merge(state: CloneState):
+    try:
+        logger.info('begin run video_merge')
+        return {
+            'step': 8
+        }
+
+    except Exception as e:
+        logger.info(f'catch error in video_merge. {str(e)}')
+        return {'error': str(e)},
+    
 
 async def should_continue(state: CloneState):
     if state['error']:
@@ -145,15 +176,17 @@ clone_graph_builder.add_node('select_step', select_step)
 clone_graph_builder.add_node('plot_generation', plot_generation)
 clone_graph_builder.add_node('voice_generation', voice_generation)
 clone_graph_builder.add_node('storyboard_generation', storyboard_generation)
-clone_graph_builder.add_node('image_generation', image_generation)
+clone_graph_builder.add_node('image_base_generation', image_base_generation)
+clone_graph_builder.add_node('segment_frame_generation', segment_frame_generation)
 clone_graph_builder.add_node('video_generation', video_generation)
+clone_graph_builder.add_node('video_merge', video_merge)
 clone_graph_builder.add_node("process_error", process_error)
 
 clone_graph_builder.add_edge(START, 'select_step')
 clone_graph_builder.add_conditional_edges(
     'select_step',
     should_select_next_step,
-    ['plot_generation', 'voice_generation', 'storyboard_generation', 'image_generation', 'video_generation', END]
+    ['plot_generation', 'voice_generation', 'storyboard_generation', 'image_base_generation', 'segment_frame_generation', 'video_generation', 'video_merge', END]
 )
 clone_graph_builder.add_conditional_edges(
     'plot_generation',
@@ -174,13 +207,25 @@ clone_graph_builder.add_conditional_edges(
 )
 
 clone_graph_builder.add_conditional_edges(
-    'image_generation',
+    'image_base_generation',
+    should_continue,
+    ['process_error', 'select_step', END]
+)
+
+clone_graph_builder.add_conditional_edges(
+    'segment_frame_generation',
     should_continue,
     ['process_error', 'select_step', END]
 )
 
 clone_graph_builder.add_conditional_edges(
     'video_generation',
+    should_continue,
+    ['process_error', 'select_step', END]
+)
+
+clone_graph_builder.add_conditional_edges(
+    'video_merge',
     should_continue,
     ['process_error', 'select_step', END]
 )

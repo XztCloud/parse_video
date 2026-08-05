@@ -19,7 +19,7 @@ from sqlalchemy import delete, select
 
 from app.config import settings
 from app.services.llm import ActorLines, AudioTimeline, CharacterAsset, CharacterManifest, CloneAnalysis, ReloadLines, ReloadLinesPrompt, Segment, StoryBoard, reload_lines_model
-from app.database import AsyncSessionLocal, SessionLocal
+from app.tasks.process_loop_manager import process_loop
 from app.models.script import CloneScript, CloneScriptSegment, CloneStatus, CloneVoice
 from app.services.clone_plot import send_fail_status
 from app.services.gen_image import GenImage, GenImageParams, ImageSize
@@ -36,19 +36,6 @@ from celery.utils.log import get_task_logger
 logger = get_task_logger(__name__)
 
 SCENE_VOICE_CIRCLE_MAX = 3
-
-# class CustomStoryboardContext:
-#     """自定义上下文，存放共享对象"""
-#     gen_voice: GenVoice = None
-
-# class VoiceSeekInfo(BaseModel):
-#     seek_plot_idx: int = Field(default=0, description='遍历场景index')
-#     lines_infos: list[list[Lines]] = Field(description='每个场景的台词列表')
-#     plot_duration_list: list[float] = Field(description='每个场景的目标时长')
-#     # gen_voice: GenVoice = Field(description='下载声音类对象')
-#     save_dir: str
-#     ratio: float = Field(default=1.0, description='实际声音时长/目标时长')
-#     circle_num:int = Field(default=0, description='但场景音频循环获取次数')
 
 
 class CloneStoryboardState(TypedDict):
@@ -72,7 +59,7 @@ def log_node_start():
 async def generate_storyboard(state: CloneStoryboardState):
     from app.services.llm import STORYBOARD_SYSTEM_PROMPT, STORYBOARD_QUERY_PROMPT, storyboard_model
     log_node_start()
-    db = AsyncSessionLocal()
+    db = process_loop.AsyncSessionLocal()
     try:
         statment = await db.execute(select(CloneScript).where(CloneScript.id == state['clone_script_id']))
         clone_script = statment.scalar_one_or_none()
@@ -83,40 +70,60 @@ async def generate_storyboard(state: CloneStoryboardState):
 
         clone_script.clone_progress = 32
         await db.commit()
-
-
-        plot_script = json.loads(clone_script.clone_parse_pointer)
-        # logger.info(f'plot_script is {plot_script},   type is {type(plot_script)}')
-        # return Command(goto="__end__") 
-        query = STORYBOARD_QUERY_PROMPT.format(
-            plot_script=plot_script,
-            notice=state['retry_messages']
-        )
-        logger.info(f'query: {query}')
-        messages = [SystemMessage(STORYBOARD_SYSTEM_PROMPT),
-                    HumanMessage(query)]
-        response = await storyboard_model.ainvoke(
-            messages,
-            config={
-                "configurable": {
-                    "temperature":0.0
-                }
-            }
-        )
-        if not isinstance(response, StoryBoard):
-            raise Exception("generate_storyboard llm输出格式错误")
         
-        json_str_res = response.model_dump_json()
+        parse_pointer = CloneAnalysis.model_validate_json(clone_script.clone_parse_pointer)
+        
+        role_library=[role.model_dump() for role in parse_pointer.role_library]
+        scene_library=[scene.model_dump() for scene in parse_pointer.scene_library]
+        
+        storyboard_system = STORYBOARD_SYSTEM_PROMPT.format(
+            role_library=role_library,
+            scene_library=scene_library,
+            global_style=parse_pointer.global_style,
+            core_shell_point=parse_pointer.core_shell_point.model_dump()
+        )
+        logger.info(f'system prompt: {storyboard_system}')
+        
+        all_result = StoryBoard(segments=[])
+        last_conversation = []
+        for item_plot in parse_pointer.plot_script:
+            messages = [SystemMessage(storyboard_system)]
+            messages.extend(last_conversation)
+            last_conversation = []
+            query = STORYBOARD_QUERY_PROMPT.format(
+                plot_script=item_plot.model_dump()
+            )
+            messages.append(HumanMessage(query))
+            logger.info(f'query: {query}')
+            logger.info(f'storyboard_model messages len: {len(messages)}')
+        
+            response = await storyboard_model.ainvoke(
+                messages,
+                config={
+                    "configurable": {
+                        "temperature":0.0
+                    }
+                }
+            )
+            if not isinstance(response, StoryBoard):
+                raise Exception("generate_storyboard llm输出格式错误")
+            all_result.segments.extend(response.segments)
+            logger.info(f'after merge message, messages len: {len(all_result.segments)}')
+            
+            messages.append(AIMessage(content=response.model_dump_json()))
+            last_conversation = messages[-2:]
+        
+        json_str_res = all_result.model_dump_json()
         logger.info(f'generate storyboard is {json_str_res}')
-        logger.info(f'set plot_role_library is {plot_script.get('role_library', [])}')
-        logger.info(f'set plot_scene_library is {plot_script.get('scene_library', [])}')
+        logger.info(f'set plot_role_library is {role_library}')
+        logger.info(f'set plot_scene_library is {scene_library}')
 
 
         return Command(
             update={
-                'storyboard_script': response,
-                'plot_role_library': plot_script.get('role_library', []),
-                'plot_scene_library': plot_script.get('scene_library', [])
+                'storyboard_script': all_result,
+                'plot_role_library': role_library,
+                'plot_scene_library': scene_library
             },
             goto='check_storyboard_result'
         )
@@ -134,10 +141,7 @@ async def generate_storyboard(state: CloneStoryboardState):
 
 async def check_storyboard_result(state: CloneStoryboardState):
     log_node_start()
-    # db = SessionLocal()
     try:
-        
-        # clone_script = db.query(CloneScript).filter(CloneScript.id == state['clone_script_id']).first()
         plot_role_name = [role['role_name'] for role in state['plot_role_library'] if 'role_name' in role]
         plot_scene_name = [scene['scene_name'] for scene in state['plot_scene_library'] if 'scene_name' in scene]
         storyboard_script = state['storyboard_script']
@@ -151,7 +155,11 @@ async def check_storyboard_result(state: CloneStoryboardState):
                 extra_scene_messages += f'发现剧本中存在场景名({segments.scene_name}) 不在视频脚本（来自创意总监的宏观设想）中 \n'
             for lines in segments.audio_timeline:
                 if lines.role_name not in plot_role_name:
-                    logger.info(f'find role_name:{lines.role_name} not in plot_role_name')
+                    logger.info(f'audio_timeline role_name:{lines.role_name} not in plot_role_name')
+                    extra_role_messages += f'发现剧本中存在人物名({lines.role_name}) 不在视频脚本（来自创意总监的宏观设想）中 \n'
+            for role_view in segments.role_view_info:
+                if role_view.role_name not in plot_role_name:
+                    logger.info(f'role_view_info role_name:{lines.role_name} not in plot_role_name')
                     extra_role_messages += f'发现剧本中存在人物名({lines.role_name}) 不在视频脚本（来自创意总监的宏观设想）中 \n'
 
         
@@ -197,7 +205,7 @@ async def need_retry_storyboard(state: CloneStoryboardState):
 async def reset_segment_duration(state: CloneStoryboardState):
     """检查每个分镜的时长，是否符合生成视频的时长限制 """
     log_node_start()
-    db = AsyncSessionLocal()
+    db = process_loop.AsyncSessionLocal()
     try:
         statment = await db.execute(select(CloneScript).where(CloneScript.id == state['clone_script_id']))
         clone_script = statment.scalar_one_or_none()
@@ -205,7 +213,6 @@ async def reset_segment_duration(state: CloneStoryboardState):
             raise Exception('not find clone_script in generate_storyboard')
         
         # TODO: 检查每个分镜的时长，是否符合生成视频的时长限制，不符合的单独切分
-        
 
         return Command(goto='save_storyboard')
     except Exception as e:
@@ -223,11 +230,10 @@ async def reset_segment_duration(state: CloneStoryboardState):
 
 async def save_storyboard(state: CloneStoryboardState):
     log_node_start()
-    db = AsyncSessionLocal()
+    db = process_loop.AsyncSessionLocal()
     async def add_voice_path(lines_list: List[AudioTimeline]):
         statment = await db.execute(select(CloneVoice).where(CloneVoice.script_id == state['clone_script_id']))
         clone_voice_list = statment.scalars().all()
-        # clone_voice_list = db.query(CloneVoice).filter(CloneVoice.script_id == state['clone_script_id']).all()
         list_of_dicts = [item.model_dump() for item in lines_list]
         if not clone_voice_list:
             return list_of_dicts
@@ -242,11 +248,6 @@ async def save_storyboard(state: CloneStoryboardState):
                 CloneVoice.voice_type == lines_dict['audio_style']))
             result = statment.scalars().first()
 
-            # result = db.query(CloneVoice.path).filter(
-            #     CloneVoice.role_name == lines_dict['role_name'],
-            #     CloneVoice.text_md5 == search_md5,
-            #     CloneVoice.voice_type == lines_dict['audio_style']
-            # ).first()
             if result:
                 audio_path = result
                 lines_dict['audio_path'] = audio_path
@@ -257,11 +258,9 @@ async def save_storyboard(state: CloneStoryboardState):
             
         return list_of_dicts
 
-
     try:
         statment = await db.execute(select(CloneScript).where(CloneScript.id == state['clone_script_id']))
         clone_script = statment.scalar_one_or_none()
-        # clone_script = db.query(CloneScript).filter(CloneScript.id == state['clone_script_id']).first()
         if not clone_script or not clone_script.clone_parse_pointer:
             raise Exception('not find clone_script in generate_storyboard')
         
@@ -276,7 +275,10 @@ async def save_storyboard(state: CloneStoryboardState):
                 end_time=round(offset_time+segment.duration_budget, 2),
                 shot_description=segment.prompt_for_video,
                 dialogue=dialogue,
-                segment_type=segment.target_emotion
+                role_view_info=[role_view.model_dump() for role_view in segment.role_view_info],
+                segment_type=segment.target_emotion,
+                shot_type=segment.shot_type,
+                scene_name=segment.scene_name
             )
             offset_time = round(offset_time+segment.duration_budget, 2)
             db.add(clone_segement)
@@ -313,7 +315,6 @@ async def process_error(state: CloneStoryboardState):
 
 
 clone_storyboard_builder = StateGraph(CloneStoryboardState)
-
 
 
 clone_storyboard_builder.add_node('generate_storyboard', generate_storyboard)

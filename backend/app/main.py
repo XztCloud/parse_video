@@ -82,7 +82,7 @@ def main():
 
     app = create_app()
     uvicorn_config = {
-        "app": app,  # Pass application instance directly instead of string path
+        "app": app,  # 如果使用多进程，这里不要传对象，改成生成路径，并添加workers参数
         "host": settings.BACKEND_HOST,
         "port": settings.BACKEND_PORT,
         "log_config": None,

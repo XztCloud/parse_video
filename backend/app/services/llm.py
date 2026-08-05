@@ -10,7 +10,7 @@ model = init_chat_model(
     model_provider='openai',
     base_url=settings.LLM_BASE_URL,
     api_key=settings.LLM_API_KEY,
-    configurable_fields=("temperature")
+    configurable_fields=("model", "temperature")
 )
 
 #节点A##########################################################################################################
@@ -56,7 +56,7 @@ class SceneStyleGlobal(BaseModel):
     """
     global_style_suffix: str = Field(
         ..., 
-        description="全局通用的生图后缀。例如：'cinematic lighting, photorealistic, 4k resolution, shot on RED camera'。"
+        description="全局通用的生图后缀。全局视觉母模板，保证换了场景但电影质感（画幅、相机、画风种子）不穿帮。中文提示词"
     )
 
 class CoreSellingPoint(BaseModel):
@@ -120,8 +120,8 @@ class ClonePlotScript(BaseModel):
         ...,
         description="本段剧情的台词信息"
     )
-
-class CloneAnalysis(BaseModel):
+    
+class CloneAnalysisFocus(BaseModel):
     role_library: list[CharacterInfo] = Field(description="视频中所有出镜或配音角色的结构化列表。")
     scene_library: List[SceneDetail] = Field(
         ..., 
@@ -135,10 +135,33 @@ class CloneAnalysis(BaseModel):
         ...,
         description="核心卖点与营销痛点模型，用于锁定剧本的商业逻辑"
     )
+    
+class CloneAnalysisPlot(BaseModel):
     plot_script: List[ClonePlotScript] = Field(
         ...,
         description="新视频的剧情大纲"
     )
+
+class CloneAnalysis(CloneAnalysisFocus, CloneAnalysisPlot):
+    pass
+    # role_library: list[CharacterInfo] = Field(description="视频中所有出镜或配音角色的结构化列表。")
+    # scene_library: List[SceneDetail] = Field(
+    #     ..., 
+    #     description="本片中所有可能用到的场景库列表。"
+    # )
+    # global_style: SceneStyleGlobal = Field(
+    #     ..., 
+    #     max_length= 128,
+    #     description="全局画风母模板约束。"
+    # )
+    # core_shell_point: CoreSellingPoint = Field(
+    #     ...,
+    #     description="核心卖点与营销痛点模型，用于锁定剧本的商业逻辑"
+    # )
+    # plot_script: List[ClonePlotScript] = Field(
+    #     ...,
+    #     description="新视频的剧情大纲"
+    # )
     
 
 CREATIVE_SYSTEM_PROMPT = """
@@ -148,7 +171,7 @@ CREATIVE_SYSTEM_PROMPT = """
 
 # Task
 
-分析用户提供的【原视频分析文本】【原视频剧情大纲】与【全新主题梗概】，在保持原视频“黄金3秒、核心冲突、情绪节奏、痛点切入点”完全一致的前提下，进行宏观创意换血。
+分析用户提供的输入，在保持原视频“黄金3秒、核心冲突、情绪节奏、痛点切入点”完全一致的前提下，进行宏观创意换血。
 
 # Rules & Constraints
 
@@ -158,24 +181,19 @@ CREATIVE_SYSTEM_PROMPT = """
 """
 
 CREATIVE_QUERY_PROMPT = """
-请根据以下输入，执行创意换血任务：
+分析用户提供的【原视频分析文本】与【全新主题梗概】，在保持原视频“黄金3秒、核心冲突、情绪节奏、痛点切入点”完全一致的前提下，进行宏观创意换血。
 
-1. 原视频分析文本
+1. 【原视频分析文本】
 ```Markdown
 {analysis_focus}
 ```
 
-2. 原视频剧情大纲
-```Json
-{plot_script}
-```
-
-3. 全新主题/产品梗概（Clone Theme）
+2. 【全新主题梗概】
 ```Text
 {clone_theme}
 ```
 
-4. 上次失败经验（可能为空）：
+3. 【上次失败经验】（可能为空）：
 ```Text
 {error_message}
 ```
@@ -183,13 +201,33 @@ CREATIVE_QUERY_PROMPT = """
 请开始你的创意创作：
 """
 
+CREATIVE_PLOT_QUERY_PROMPT = """
+分析用户提供的 【原视频剧情大纲】按照【全新视频脚本】进行创意换血，输出新的视频大纲，保证新大纲符合【全新视频脚本】。
+
+1. 【原视频剧情大纲】
+```Json
+{ori_plot}
+```
+
+2. 【全新视频脚本】
+```Json
+{new_plot_focus}
+```
+
+请开始你的创意创作：
+"""
+
+
 # RESET_LINES_PROMPT = """
 # 请检查上述输出结构中 plot_script 每个元素。
 # 确保 actor_lines
 # """
 
-creative_model = model.with_structured_output(CloneAnalysis)
-creative_model_strict = model.with_structured_output(CloneAnalysis, strict=True)
+creative_model_focus = model.with_structured_output(CloneAnalysisFocus)
+creative_model_plot = model.with_structured_output(CloneAnalysisPlot)
+# 防止输出格式出错
+creative_model_focus_strict = model.with_structured_output(CloneAnalysisFocus, strict=True)
+creative_model_plot_strict = model.with_structured_output(CloneAnalysisPlot, strict=True)
 
 
 #节点B##########################################################################################################
@@ -226,13 +264,44 @@ class AudioTimeline(BaseModel):
         description="台词在当前分镜时间线上的相对结束时间（单位：秒）。min(start_offset+本地台词的predict_duration, start_offset+本分镜时长)"
     )
 
+class SegmentRoleView(BaseModel):
+    role_name: str = Field(
+        ..., 
+        description="角色名称。必须严格与输入 role_library 中的 role_name 保持完全一致，禁止自行发明角色名。"
+    )
+    visibility: Literal[
+        "visible",
+        "partial",
+        "invisible"
+    ] = Field(
+        ...,
+        description="人物在画面中的可见状态"
+    )
+
+    position: str = Field(
+        ...,
+        description="人物在画面中的空间位置，例如 foreground_left, center, background_right"
+    )
+
+    action: str = Field(
+        ...,
+        description="当前镜头人物动作"
+    )
+
+    emotion: str = Field(
+        ...,
+        description="人物当前表情和情绪"
+    )
+    
+
 class Segment(BaseModel):
     scene_name: str = Field(..., description="分镜所在场景名，与输入scene_library中scene_name对齐，多个分镜可以属于同一个场景")
-    duration_budget: float = Field(..., ge=0.0, le=5.0, description="预估分镜总时长, 单位秒")
+    duration_budget: float = Field(..., ge=1.0, le=15.0, description="预估分镜总时长, 单位秒")
     shot_type: str = Field(..., description="用于指挥AI生成视频时镜头动作，例如：中景/远景/人像/平时/俯视/跟随人物等")
     prompt_for_video: str = Field(..., description="用于生成视频的提示词，例如：一位30岁的亚洲女性老板双手猛拍桌子、怒不可遏的特写镜头。坐在她对面的25岁男性程序员神情紧张。")
     target_emotion: str = Field(..., description="分镜整体情绪，例如：冲突/高潮/过渡等")
     audio_timeline: List[AudioTimeline] = Field(default=[], description="分镜下人物台词")
+    role_view_info: list[SegmentRoleView] = Field(default=[], description="分镜下人物出境信息")
 
 class StoryBoard(BaseModel):
     segments: List[Segment] = Field(..., description="分镜脚本列表，注意时间连续性")
@@ -242,29 +311,44 @@ STORYBOARD_SYSTEM_PROMPT = """
 你是一位严谨的商业短视频分镜导演。你的任务是接棒创意总监的宏观设想，将其落地为高可执行性、能直接触发 AI 多角色配音和 AI 生视频的结构化分镜脚本。
 
 # Task
-阅读创意总监提供的【视频脚本】包括 人物(role_library) 场景(scene_library,global_style) 推广点(core_shell_point) 和剧情大纲(slot_script) 四个部分 ，生成一套全新的、用于 AI 多模态生产的结构化分镜脚本。
+阅读创意总监提供的【视频脚本】包括 角色列表 场景列表 核心卖点 和 剧情大纲(分段提供) 四个部分 ，生成一套全新的、用于 AI 多模态生产的结构化分镜脚本。
 
 # Multi-Role & Technical Rules (视听对齐铁律)
 1. 需要为新分镜划分 [宏观场景（scene_name）]，并设定 [预估总时长预算] (duration_budget)。
 2. 音频解耦与多角色对齐 (音频 List 核心规则)：
    - 每个镜头的音频部分必须是一个列表 `audio_timeline`。
-   - 必须明确指定说话的 `role_name`（如：女高管、程序员、旁白），必须使用用户提供的【视频脚本】role_library中role_name。禁止使用模糊统称和编造新角色名。
+   - 必须明确指定说话的 `role_name`（如：女高管、程序员、旁白），必须使用用户提供的【角色列表】role_library中role_name。禁止使用模糊统称和编造新角色名。
    - 必须通过相对时间戳 `start_offset` 和 `end_offset` 标明每句话在当前镜头内的起止时间（例如：在这个5秒的镜头里，角色 A 从第 0 秒说到第 3 秒，角色 B 从第 3.2 秒说到第 5 秒）。
-3. 台词时长严格按照【视频脚本】中台词 predict_duration 计算
-4. 画面描述可执行性：`prompt_for_video` 必须是纯名词/动词的高清场景、动作、景别描绘，以便直接输入给 Midjourney 或 Runway 生成，禁止出现“感到悲伤”、“技术很厉害”等 AI 无法直接作画的抽象形容词。
+3. 台词时长严格按照【剧情大纲】中台词 predict_duration 计算
+4. 画面描述可执行性：`prompt_for_video` 必须是纯名词/动词的高清场景、动作、景别描绘，以便直接输入给 flux2 生成，禁止出现“感到悲伤”、“技术很厉害”等 AI 无法直接作画的抽象形容词。
 5. 人物一致性命名：在画面描述中出现主角时，必须使用统一的特征词（例如：一个25岁的年轻格子衫男程序员），严禁使用“他/她”或不同的称呼。
 6. 分镜时长：15s以内，尽量拆分分镜以符合要求。
+
+# 角色列表
+```Json
+{role_library}
+```
+
+# 场景列表
+```Json
+{scene_library}
+```
+
+# 核心卖点
+```Json
+{core_shell_point}
+```
 """
 
 STORYBOARD_QUERY_PROMPT = """
-请根据以下输入，严格生成全新的分镜 JSON 数组：
+请根据以下【剧情大纲】，严格生成全新的分镜 JSON 数组：
 
-1. 视频脚本（来自创意总监的宏观设想）
+1. 【剧情大纲】（来自创意总监的宏观设想）
 
 ```Json
 {plot_script}
 ```
-{notice}
+
 请生成分镜脚本：
 """
 
@@ -278,8 +362,14 @@ class CharacterAsset(BaseModel):
 
     visual_anchor_prompt: Optional[str] = Field(
         default=None,
-        description="用于控制模型生成一致性长相的英文定妆照提示词。必须是单人、正脸、干净背景的高清半身肖像描述。如果不出镜，则不填。例如：" \
-        "Photorealistic, ultra-detailed close-up portrait of a woman with long wavy brown hair tied neatly back, wearing rimless clear-lensed glasses with a sophisticated silver rim. She has a subtle blue rose hair clip in her hair with a small navy ribbon, and a delicate silver necklace with a heart-shaped turquoise pendant. The background is pure white, and the soft, warm professional lighting creates a focused and professional atmosphere. The composition is a standard head-and-shoulders ID photo style, with a shallow depth of field. Emphasis is placed on the neat hair texture, reflective glass surfaces, healthy skin tone, and the delicate jewelry details. The overall style is business-oriented and professional, with a confident and focused mood."
+        description="用于控制模型生成一致性长相的中文定妆照提示词。必须是单人、正脸、干净背景的高清肖像描述。如果不出镜，则不填。例如：" \
+        "这是一张照片级写实、细节极其丰富的女性特写肖像照。她留着一头棕色长波浪卷发，整洁地向后束起，佩戴着一副精致银色边框的无框透明眼镜。发间别着一枚带有深蓝色小丝带的淡蓝色玫瑰发夹，颈上戴着一条精致的银项链，挂有心形绿松石吊坠。背景为纯白色，柔和温暖的专业布光营造出一种专注且专业的氛围。构图采用标准的半身证件照风格，并运用了浅景深效果。画面着重刻画了整洁的发丝质感、镜片表面的光泽、健康的肤色以及首饰的精致细节。整体风格商务且专业，传达出自信与专注的神态。"
+    )
+    
+    faceless: str | None = Field(
+        default=None,
+        description="人物全身的定妆描述，不可以与肖像描述冲突，不需要描述脸部细节。如果不出镜，则不填。例如：" \
+        "这是一位25岁女性，身材高挑纤细，留着一头利落的深棕色齐肩锁骨短发。全身穿着一件版型硬挺的米色双排扣中长款风衣，里面叠穿黑色高领针织衫。下身是修身的深色西装裤，脚踩一双黑色细跟皮质踝靴。整体散发着职场轻熟女的知性与干练气质。"
     )
 
 class CharacterManifest(BaseModel):
@@ -426,3 +516,144 @@ ReloadLinesPrompt = """
 """
 
 reload_lines_model = model.with_structured_output(ReloadLines)
+
+
+#生成场景 ##########################################################################################################
+class ScenePrompt(BaseModel):
+    scene_name: str = Field(
+        ...,
+        description='提示词对应场景名，与输入【场景清单】中scene_name字段对齐，严禁编造场景名。'
+    )
+    scene_prompt: str = Field(
+        ..., 
+        description='使用flux2 klien生成场景图片的提示词。中文 prompt。不要解释。不要添加标题。')
+
+class SceneManifest(BaseModel):
+    scene_prompt_list: list[ScenePrompt] = Field(description='场景提示词列表，每个场景对应一个元素。')
+    
+SCENE_GENERATE_PROMPT = """
+你是一名专业电影美术指导和 AI 图像提示词工程师。
+
+你的任务：
+根据【场景清单】、【整体视觉风格】，生成多个对应场景的适用于 FLUX2 文生图模型生成【场景参考图（Scene Asset）】的提示词。
+
+目标：
+生成多个高质量、电影级、写实的场景图片提示词。
+该提示词生成的图片会作为多个视频分镜共享的场景资产，因此必须保持稳定、通用，不包含具体人物。
+
+输入：
+
+【场景清单】
+{scene_description}
+
+【整体视觉风格】
+{visual_style}
+
+【上次报错信息】（可能为空）
+{error_message}
+
+生成要求：
+
+1. 只描述环境和空间，不生成人物。
+禁止出现：
+- people
+- person
+- man
+- woman
+- character
+- human
+
+
+2. 提取场景中的核心视觉元素：
+- 空间类型（办公室、街道、房间、森林等）
+- 建筑结构
+- 家具和物品
+- 材质
+- 色彩
+- 氛围
+
+
+3. 增强电影摄影效果：
+必须包含：
+- cinematic composition
+- realistic lighting
+- detailed environment
+- professional photography
+
+
+4. 根据场景类型补充合理细节：
+例如：
+办公室：
+- desk
+- computer
+- window
+- office furniture
+
+古代宫殿：
+- stone floor
+- wooden structure
+- traditional decoration
+
+森林：
+- trees
+- fog
+- sunlight rays
+
+
+5. 输出必须是 FLUX 推荐格式：
+
+[主体环境描述],
+[空间细节],
+[材质和颜色],
+[光照氛围],
+[摄影参数]
+"""
+
+scene_generate_model = model.with_structured_output(SceneManifest)
+
+#生成分镜帧提示词 ##########################################################################################################
+
+
+GENEERATE_SEGMENT_FRAME ="""
+生成一张电影级分镜首帧图片。
+
+参考信息：
+- 人物参考图用于保持人物身份，包括脸部特征、发型、年龄、体型、服装风格，可能存在多个角色，json格式。
+- 场景参考图用于保持环境结构、空间布局、建筑风格和整体光影氛围。
+
+要求生成一个完整的新画面，让人物自然存在于场景环境中。
+
+【人物】
+{角色名称}
+外貌：
+{角色描述}
+
+动作：
+{人物当前动作}
+
+表情：
+{人物情绪}
+
+人物必须保持与参考图片一致的身份特征，不改变脸型、五官、发型和服装特点。
+
+【场景】
+{场景描述}
+
+场景需要保持参考图片中的环境特点，同时根据剧情需要进行合理扩展。
+
+【镜头】
+景别：
+{远景 / 中景 / 近景 / 特写}
+
+视角：
+{平视 / 俯视 / 仰视 / 侧面}
+
+构图：
+{人物位置、空间关系}
+
+【光影】
+{时间、天气、光照描述}
+
+【画面风格】
+电影摄影风格，真实自然，高细节，真实光影，影视剧截图质感。
+"""
