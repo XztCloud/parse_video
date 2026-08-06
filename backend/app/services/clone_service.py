@@ -33,7 +33,7 @@ _CLONE_STEP_CONFIG = {
     4: (CloneStatus.IMAGE, 31, [CloneStatus.SEGMENTS_DONE, CloneStatus.IMAGE_DONE]),
     5: (CloneStatus.FRAME, 45, [CloneStatus.IMAGE_DONE, CloneStatus.FRAME_DONE]),
     6: (CloneStatus.SEGMENT_VIDEO, 60, [CloneStatus.IMAGE_DONE, CloneStatus.FRAME_DONE]),
-    7: (CloneStatus.MERGE_VIDEO, 95, [CloneStatus.IMAGE_DONE, CloneStatus.FRAME_DONE]),
+    7: (CloneStatus.MERGE_VIDEO, 95, [CloneStatus.IMAGE_DONE, CloneStatus.FRAME_DONE, CloneStatus.SEGMENT_VIDEO_DONE]),
 }
 
 
@@ -210,7 +210,7 @@ async def get_clone_script_detail(db: AsyncSession, clone_script_id: int) -> dic
             if segment.clone_segment_images:
                 frames.extend(segment.clone_segment_images)
             if segment.clone_segment_video:
-                segment_videos.append(segment.clone_segment_video)
+                segment_videos.extend(segment.clone_segment_video)
 
         images = [
             {
