@@ -36,9 +36,6 @@ class SceneInfo(NamedTuple):
     video_path: str  # 新增的路径字段
     image_path_list: list[str]
 
-# 2. 声明你的新列表类型
-extended_scene_list: list[SceneInfo] = []
-
 
 class VideoProcessor:
     @staticmethod
@@ -79,18 +76,18 @@ class VideoProcessor:
             AdaptiveDetector(adaptive_threshold=adaptive_threshold, min_scene_len=min_scene_len, window_width=window_width))
         scene_manager.detect_scenes(video, show_progress=True)
         scene_list = scene_manager.get_scene_list()
-        print(f'scene_list: {scene_list}')
+        logger.debug(f'scene_list: {scene_list}')
 
         if not scene_list:
             scene_list = scene_manager.get_scene_list(start_in_scene=True)
-            print(f'scene_list: {scene_list}')
+            logger.debug(f'scene_list (start_in_scene): {scene_list}')
 
         ret = split_video_ffmpeg(video_path, scene_list, show_progress=True, output_dir=output_dir)
         if ret != 0:
             logger.error(f'split_video_ffmpeg failed. ret: {ret}')
             return result
         video_list = get_sorted_mp4_files(output_dir)
-        print(f'split video list is {video_list}, len is {len(video_list)}')
+        logger.debug(f'split video list is {video_list}, len is {len(video_list)}')
         if len(video_list) != len(scene_list):
             logger.error(f'error, split video len != scene len')
             return result

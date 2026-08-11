@@ -135,7 +135,7 @@ def convert_markdown(ori_data: json) -> str:
             print(f'Item {index}: {item}')
             print(f'Type of Item {index}: {type(item)}')
             dialogue = item.get('dialogue', [])
-            item['dialogue'] = "  ".join(f"{item['speaker']}:{item['text']}" for item in dialogue)
+            item['dialogue'] = "  ".join(f"{d['speaker']}:{d['text']}" for d in dialogue)
             print(f'Processed dialogue for Item {index}: {item["dialogue"]}, type: {type(item["dialogue"])}')
             reset_item = {}
             if item.get('start_time') is not None:
@@ -201,7 +201,7 @@ class ScriptGenerator:
 {
     "start_time": 132000.0,
     "end_time": 136000.0,
-    "shot_description": "片段2的描述,
+    "shot_description": "片段2的描述",
     "dialogue": [
         {"speaker": "2", "text": "别急，我找个人问问。"}
     ],
@@ -315,7 +315,7 @@ class ScriptGenerator:
         content = response.content.strip()
         print(f'content: {content}')
         result.append(content)
-        messages.append(content)
+        messages.append(AIMessage(content=content))
 
         json_example = """
 [{
@@ -347,7 +347,7 @@ class ScriptGenerator:
 按照json格式输出，输出格式样例：
 {json_example}
 """
-        messages.append(summary_quary)
+        messages.append(HumanMessage(content=summary_quary))
 
         summary_content = {}
         retry = 0

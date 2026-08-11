@@ -8,6 +8,7 @@ from app.services.clone_voice import CustomVoiceContext, clone_voice_graph
 from app.services.clone_image import clone_image_graph
 from app.services.clone_frame import generate_segment_frame_prompt
 from app.services.clone_segment_video import generate_segments_video
+from app.services.clone_merge_video import merge_segment_videos
 
 logger = get_task_logger(__name__)
 
@@ -151,6 +152,7 @@ async def video_generation(state: CloneState):
 async def video_merge(state: CloneState):
     try:
         logger.info('begin run video_merge')
+        await merge_segment_videos(state["clone_script_id"])
         return {
             'step': 8
         }

@@ -1,11 +1,13 @@
 import base64
 import json
-from http import HTTPStatus
+import logging
 import time
 import uuid
 
 import requests
 from ..config import settings
+
+logger = logging.getLogger("parse_video")
 
 
 # 辅助函数：将本地文件转换为Base64
@@ -32,7 +34,7 @@ def submit_task(file_path, appid, token):
     try:
         base64_data = file_to_base64(file_path)  # 转换文件为 Base64
     except Exception as e:
-        print(f'error, load file to base64. path:{file_path}')
+        logger.error(f'error, load file to base64. path:{file_path}, error: {e}')
         return None
 
     request = {
@@ -78,9 +80,8 @@ def submit_task(file_path, appid, token):
         print(f'Submit task response header X-Tt-Logid: {response.headers["X-Tt-Logid"]}\n')
         return (task_id, x_tt_logid)
     else:
-        print(f'Submit task failed and the response headers are: {response.headers}')
+        logger.error(f'Submit task failed. response headers: {dict(response.headers)}')
         return None
-    return task_id
 
 
 def query_task(task_id, x_tt_logid, appid, token):
@@ -101,8 +102,8 @@ def query_task(task_id, x_tt_logid, appid, token):
         print(f'Query task response header X-Api-Message: {response.headers["X-Api-Message"]}')
         print(f'Query task response header X-Tt-Logid: {response.headers["X-Tt-Logid"]}\n')
     else:
-        print(f'Query task failed and the response headers are: {response.headers}')
-        exit(1)
+        logger.error(f'Query task failed. response headers: {dict(response.headers)}')
+        raise Exception(f'Query ASR task failed, task_id: {task_id}')
     return response
         
 
@@ -138,7 +139,9 @@ class ASRService:
             print('submit_task failed.') 
             return None
         task_id, x_tt_logid  = ret
-        while True:
+        max_retries = 300  # 最多轮询 300 次（约 5 分钟）
+        retry_count = 0
+        while retry_count < max_retries:
             query_response = query_task(task_id, x_tt_logid, appid, token)
             code = query_response.headers.get('X-Api-Status-Code', "")
             if code == '20000000':  # task finished
@@ -151,4 +154,7 @@ class ASRService:
             elif code != '20000001' and code != '20000002':  # task failed
                 print("FAILED!")
                 return None
+            retry_count += 1
             time.sleep(1)
+        logger.error(f'ASR task timed out after {max_retries} retries (task_id: {task_id})')
+        return None

@@ -93,7 +93,7 @@ def get_token_from_request(request: Request) -> str | None:
     return token
 
 def user_id_identifier(request: Request) -> str:
-    user_id = request.state.user_id
+    user_id = getattr(request.state, 'user_id', None)
     if user_id:
         return f"user:{user_id}:{request.url.path}"
     return f"ip:{request.client.host}:{request.url.path}"

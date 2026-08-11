@@ -19,7 +19,7 @@ from app.api.deps import limiter
 os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
 
 
-from .database import Base, engine
+from .database import Base, engine, async_engine
 
 
 def create_app() -> FastAPI:
@@ -35,6 +35,7 @@ def create_app() -> FastAPI:
             yield
         
         finally:
+            await async_engine.dispose()
             logger.info('Server stop!')
 
     app_kwargs = {
@@ -67,7 +68,16 @@ def create_app() -> FastAPI:
 
     app.include_router(api_router, prefix='/api/v1')
     app.include_router(authenticated_router, prefix='/api/v1')
+
+    @app.exception_handler(Exception)
+    async def general_exception_handler(request: Request, exc: Exception):
+        logger.exception("Unhandled exception on %s", request.url.path)
+        return JSONResponse(status_code=500, content={"detail": "Internal server error"})
+
     return app
+
+
+app = create_app()
 
 
 def main():
@@ -80,9 +90,8 @@ def main():
         logger.disabled = True
     logger.info("Logging is configured. Starting the server...")
 
-    app = create_app()
     uvicorn_config = {
-        "app": app,  # 如果使用多进程，这里不要传对象，改成生成路径，并添加workers参数
+        "app": "app.main:app",
         "host": settings.BACKEND_HOST,
         "port": settings.BACKEND_PORT,
         "log_config": None,

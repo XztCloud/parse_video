@@ -1,4 +1,5 @@
 import base64
+import logging
 import os
 from pathlib import Path
 from typing import Optional
@@ -9,6 +10,8 @@ from app.services.video_processor import SceneInfo
 from ..config import settings
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, SystemMessage
+
+logger = logging.getLogger("parse_video")
 
 
 # ---------------------------------------------------------------------------
@@ -193,7 +196,6 @@ class VisualService:
             base_url=settings.LLM_BASE_URL,
             api_key=settings.LLM_API_KEY,
         )
-        print('1')
         segments = []
 
         for scene_info in scene_infos:
@@ -202,7 +204,7 @@ class VisualService:
             try:
                 summary_item = summarizer.summarize_frames(batch)
             except Exception as e:
-                print(f'error is {e}')
+                logger.exception('summarize_frames failed for scene %s', scene_info.start)
                 return None
             description = summary_item
 
