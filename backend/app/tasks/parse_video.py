@@ -1,4 +1,4 @@
-import os, json, asyncio
+import os, json
 import threading
 
 from pydantic import BaseModel
@@ -46,7 +46,7 @@ def parse_video_task(self, video_id: int):
         logger.info('start celery task: parse_video_task')
         video = db.query(Video).filter(Video.id == video_id).first()
         if not video:
-            raise
+            raise ValueError(f"Video {video_id} not found")
         video.status = VideoStatus.PROCESSING
         video.progress = 0
         db.commit()
@@ -61,7 +61,7 @@ def parse_video_task(self, video_id: int):
             video.status = VideoStatus.FAILED
             video.error_message = 'split_video_into_scenes failed.'
             db.commit()
-            raise
+            raise ValueError("split_video_into_scenes returned empty list")
 
         video.progress = 30
         db.commit()
@@ -70,14 +70,13 @@ def parse_video_task(self, video_id: int):
             video.status = VideoStatus.FAILED
             video.error_message = "not find audio track."
             db.commit()
-            raise
+            raise ValueError("ASR transcription returned None")
         asr_segments, all_text= trans_ret
 
         video.progress = 60
         logger.info(f'asr_segments: {asr_segments}')
         db.commit()
-        logger.info('0')
-        visual_segments = asyncio.run(VisualService.analyze_frames(scene_info_list, fps=1.0))
+        visual_segments = process_loop.run(VisualService.analyze_frames(scene_info_list, fps=1.0))
         if visual_segments is None:
             video.status = VideoStatus.FAILED
             video.error_message = "visual analyze frames failed."
@@ -88,10 +87,10 @@ def parse_video_task(self, video_id: int):
         video.progress = 80
         db.commit()
 
-        script_result = asyncio.run(ScriptGenerator.generate_script(asr_segments, visual_segments))
+        script_result = process_loop.run(ScriptGenerator.generate_script(asr_segments, visual_segments))
         logger.info(f'script_result: {script_result}')
 
-        parse_result = asyncio.run(ScriptGenerator.summary_script(script_result=script_result, output_dir=settings.UPLOAD_DIR + f'/{video.id}'))
+        parse_result = process_loop.run(ScriptGenerator.summary_script(script_result=script_result, output_dir=settings.UPLOAD_DIR + f'/{video.id}'))
         logger.info(f'parse_result: {parse_result}')
         video.progress = 95
         db.commit()
@@ -113,11 +112,14 @@ def parse_video_task(self, video_id: int):
         video.progress = 100
         db.commit()
     except Exception as e:
-        video = db.query(Video).filter(Video.id == video_id).first()
-        if video:
-            video.status = VideoStatus.FAILED
-            video.error_message = str(e)
-            db.commit()
+        try:
+            video = db.query(Video).filter(Video.id == video_id).first()
+            if video:
+                video.status = VideoStatus.FAILED
+                video.error_message = str(e)
+                db.commit()
+        except Exception:
+            logger.exception('Failed to update video status to FAILED')
         raise
     finally:
         db.close()

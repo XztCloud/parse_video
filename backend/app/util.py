@@ -222,7 +222,7 @@ def get_env_value(key: str, default: any, val_type: type=str) -> any:
     if value is None:
         return default
     
-    if value.lower == 'None':
+    if value.lower() == 'None':
         return None
     
     if val_type is bool:

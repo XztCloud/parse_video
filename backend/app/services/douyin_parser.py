@@ -34,7 +34,7 @@ class DouyinParser:
             info = ydl.extract_info(url, download=False)
 
         # 手动校验参数
-        duration = info.get('duration', 0)
+        duration = info.get('duration') or 0
         filesize = info.get('filesize') or info.get('filesize_approx') or 0
 
         if duration > MAX_DURATION_SECONDS:

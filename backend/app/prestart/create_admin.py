@@ -15,14 +15,13 @@ logger = logging.getLogger(__name__)
 
 def init():
     try:
-        db=SessionLocal()
-        try:
+        with SessionLocal() as db:
             super_admin = db.query(User).filter(User.email == settings.SUPER_ADMINI_EMAIL).first()
             logger.info('find super admin')
             if not super_admin:
                 logger.info('not find super admin, create it')
                 super_admin = User(
-                    email=settings.SUPER_ADMINI_EMAIL, 
+                    email=settings.SUPER_ADMINI_EMAIL,
                     hashed_password=get_password_hash(settings.SUPER_ADMINI_PASSWORD),
                     full_name='Admin',
                     is_active=True,
@@ -32,23 +31,20 @@ def init():
                 db.commit()
                 db.refresh(super_admin)
                 logger.info('not find super admin, create complete')
-        finally:
-            db.close()
     except Exception as e:
         logger.exception('创建管理员账号失败')
         raise
 
 async def async_init():
     try:
-        db = AsyncSessionLocal()
-        try:
-            statment = select(User).where(User.email == settings.SUPER_ADMINI_EMAIL)
-            res = await db.execute(statement=statment)
-            super_admin = res.scalar_one_or_none() 
+        async with AsyncSessionLocal() as db:
+            statement = select(User).where(User.email == settings.SUPER_ADMINI_EMAIL)
+            res = await db.execute(statement=statement)
+            super_admin = res.scalar_one_or_none()
             if not super_admin:
                 logger.info('not find super admin, create it')
                 super_admin = User(
-                    email=settings.SUPER_ADMINI_EMAIL, 
+                    email=settings.SUPER_ADMINI_EMAIL,
                     hashed_password=get_password_hash(settings.SUPER_ADMINI_PASSWORD),
                     full_name='Admin',
                     is_active=True,
@@ -59,10 +55,8 @@ async def async_init():
                 await db.refresh(super_admin)
                 logger.info('not find super admin, create complete')
                 return
-            
+
             logger.info('find super admin')
-        finally: 
-            await db.close()
     except Exception as e:
         logger.exception('创建管理员账号失败')
         raise

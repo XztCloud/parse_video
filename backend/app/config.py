@@ -48,7 +48,7 @@ class Settings(BaseSettings):
     BACKEND_HOST: str=""
     BACKEND_PORT: int = 8000
 
-    SECRET_KEY: str =""
+    SECRET_KEY: str
     
     ACCESS_TOKEN_EXPIRE_MINUTES: int= 60
 
@@ -92,7 +92,10 @@ class Settings(BaseSettings):
     @computed_field
     @property
     def all_cors(self) -> list[str]:
-        return [str(s).rstrip('/') for s in self.BACKEND_CORS_ORIGINS] + [self.FRONTEND_HOST]
+        origins = [str(s).rstrip('/') for s in self.BACKEND_CORS_ORIGINS if s]
+        if self.FRONTEND_HOST:
+            origins.append(self.FRONTEND_HOST.rstrip('/'))
+        return origins
     
     @computed_field
     @property
