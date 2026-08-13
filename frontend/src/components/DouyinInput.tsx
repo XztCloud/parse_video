@@ -13,17 +13,29 @@ export default function DouyinInput({ onParseSuccess }: DouyinInputProps) {
   const [error, setError] = useState<string | null>(null);
 
   const handleParse = async () => {
-    if (!url.trim()) {
+    const raw = url.trim();
+    if (!raw) {
       setError("请输入抖音分享链接");
       return;
     }
+    // 抖音分享文案通常是"描述文字 + URL"，自动提取其中的 http(s) 链接
+    const urlMatch = raw.match(/https?:\/\/[^\s，,。]+/);
+    const parsedUrl = urlMatch ? urlMatch[0] : raw;
     setIsParsing(true);
     setError(null);
     try {
-      const result = await parseDouyin(url.trim());
+      const result = await parseDouyin(parsedUrl);
       onParseSuccess(result.id);
     } catch (err: any) {
-      setError(err.response?.data?.detail || "解析失败，请重试");
+      const detail = err.response?.data?.detail;
+      let message = "解析失败，请重试";
+      if (typeof detail === "string") {
+        message = detail;
+      } else if (Array.isArray(detail)) {
+        // FastAPI 422 校验错误的 detail 是数组
+        message = detail.map((d: any) => d.msg).filter(Boolean).join("；");
+      }
+      setError(message);
     } finally {
       setIsParsing(false);
     }

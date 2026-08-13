@@ -1,8 +1,12 @@
+import json
 from typing import List, Literal, Optional
 
+from celery.utils.log import get_task_logger
 from langchain.chat_models import init_chat_model
 from pydantic import BaseModel, Field
 from app.config import settings
+
+logger = get_task_logger(__name__)
 
 model = init_chat_model(
     settings.LLM_NAME,
@@ -85,7 +89,7 @@ class CoreSellingPoint(BaseModel):
     
 class ActorLines(BaseModel):
     role_name: str = Field(..., description="角色在剧本中的唯一名称。一定要使用已经创建的角色，且角色名要一致")
-    predict_duration: float = Field(..., ge=0.5, description='台词预估时长，单位秒。每段剧情中所有台词的predict_duration之和要小于等于 end_time-start_time')
+    predict_duration: float = Field(..., ge=0.0, description='台词预估时长，单位秒。每段剧情中所有台词的predict_duration之和要小于等于 end_time-start_time')
     lines: str = Field(..., description="角色台词， 中文约4.5个字每秒，英文约3.7个字母每秒")
     audio_style: str = Field(
         ...,
@@ -341,7 +345,7 @@ STORYBOARD_SYSTEM_PROMPT = """
 """
 
 STORYBOARD_QUERY_PROMPT = """
-请根据以下【剧情大纲】，严格生成全新的分镜 JSON 数组：
+请根据以下【剧情大纲】，严格生成全新的分镜脚本。
 
 1. 【剧情大纲】（来自创意总监的宏观设想）
 
@@ -349,10 +353,70 @@ STORYBOARD_QUERY_PROMPT = """
 {plot_script}
 ```
 
+【输出格式要求】（必须严格遵守）：
+- 输出一个 JSON 对象，顶层必须是 "segments" 字段，其值为分镜对象数组。
+- 数组中每个分镜对象，字段名必须严格使用下列字段，一个不多一个不少：
+  - "scene_name"：字符串，分镜所在场景名，与场景库中的 scene_name 对齐。
+  - "duration_budget"：数字，分镜预估时长（秒），范围 1~15。
+  - "shot_type"：字符串，镜头动作，例如 "中景推镜"、"人物特写"、"俯视全景"。
+  - "prompt_for_video"：字符串，用于生成视频的画面描述，纯名词/动词，例如 "一位30岁的亚洲女性老板双手猛拍桌子，怒不可遏，面前坐着的25岁男程序员神情紧张"。
+  - "target_emotion"：字符串，分镜整体情绪，例如 "冲突"、"高潮"、"过渡"。
+  - "audio_timeline"：数组，分镜下人物台词。每项包含 "role_name"（角色名）、"lines"（台词）、"audio_style"（语气）、"lines_flag"（head/body/tail/all）、"start_offset"（秒）、"end_offset"（秒）。无台词则留空数组 []。
+  - "role_view_info"：数组，分镜下人物出境信息。每项包含 "role_name"、"visibility"（visible/partial/invisible）、"position"、"action"、"emotion"。无人物则留空数组 []。
+
+【示例】单个分镜对象：
+```json
+{{"scene_name": "办公室", "duration_budget": 3, "shot_type": "中景推镜", "prompt_for_video": "现代办公室内景，办公桌，电脑，员工背影", "target_emotion": "过渡", "audio_timeline": [], "role_view_info": []}}
+```
+
+【铁律】
+- 禁止使用 ```json 代码块包裹整个输出，直接输出 JSON 本体。
+- 禁止输出任何解释性文字、Markdown 或额外字段。
 请生成分镜脚本：
 """
 
 storyboard_model = model.with_structured_output(StoryBoard)
+
+
+def strip_markdown_fence(text: str) -> str:
+    """剥离 LLM 输出中的 Markdown 代码块围栏（```json ... ```）。"""
+    text = text.strip()
+    if text.startswith("```"):
+        lines = text.split("\n", 1)
+        if len(lines) > 1:
+            text = lines[1]
+        if text.rstrip().endswith("```"):
+            text = text.rstrip()[:-3]
+    return text.strip()
+
+
+async def ainvoke_storyboard_robust(messages, config=None) -> StoryBoard:
+    """调用分镜生成模型并容错解析。
+
+    部分模型（如 deepseek-v4-flash）对 json_schema 遵循不稳定，可能返回
+    Markdown 围栏包裹或字段名漂移的 JSON。此函数先尝试结构化输出，失败时
+    退回到原始文本解析：剥离围栏、兼容 {segments: [...]} 或纯数组两种结构。
+    """
+    try:
+        return await storyboard_model.ainvoke(messages, config=config)
+    except Exception as e:
+        logger.warning(f'storyboard structured output failed, fallback to manual parse: {str(e)[:200]}')
+        raw = await model.ainvoke(messages, config=config)
+        content = raw.content if isinstance(raw.content, str) else str(raw.content)
+        cleaned = strip_markdown_fence(content)
+        try:
+            data = json.loads(cleaned)
+        except json.JSONDecodeError:
+            # 模型可能输出 `` ```json {...} ``` `` 且带多余尾注，尝试再剥一次
+            cleaned = strip_markdown_fence(strip_markdown_fence(cleaned))
+            data = json.loads(cleaned)
+        if isinstance(data, dict) and "segments" in data:
+            return StoryBoard.model_validate(data)
+        if isinstance(data, dict) and "storyboard" in data:
+            return StoryBoard(segments=data["storyboard"])
+        if isinstance(data, list):
+            return StoryBoard(segments=data)
+        raise ValueError(f"无法解析的分镜输出: {cleaned[:200]}")
 
 
 #节点C##########################################################################################################
@@ -362,15 +426,10 @@ class CharacterAsset(BaseModel):
 
     visual_anchor_prompt: Optional[str] = Field(
         default=None,
-        description="用于控制模型生成一致性长相的中文定妆照提示词。必须是单人、正脸、干净背景的高清肖像描述。如果不出镜，则不填。例如：" \
-        "这是一张照片级写实、细节极其丰富的女性特写肖像照。她留着一头棕色长波浪卷发，整洁地向后束起，佩戴着一副精致银色边框的无框透明眼镜。发间别着一枚带有深蓝色小丝带的淡蓝色玫瑰发夹，颈上戴着一条精致的银项链，挂有心形绿松石吊坠。背景为纯白色，柔和温暖的专业布光营造出一种专注且专业的氛围。构图采用标准的半身证件照风格，并运用了浅景深效果。画面着重刻画了整洁的发丝质感、镜片表面的光泽、健康的肤色以及首饰的精致细节。整体风格商务且专业，传达出自信与专注的神态。"
+        description="用于控制模型生成一致性长相的中文定妆照提示词。必须是单人、正脸、干净背景的半生或者全身照。如果不出镜，则不填。请用一段连贯、电影级的自然语言描述（不要用逗号标签堆砌），按这个顺序组织：角色主体（性别、年龄、发型、发色、五官特征）→ 服装与配饰（款式、颜色、材质、细节）→ 姿态与表情 → 光线与摄影（布光方向、质感、景深、焦段）→ 背景与环境氛围。例如：" \
+        "电影级人物定妆照，一位二十四五岁的亚洲年轻女性正对镜头，五官清秀，柳叶眉，杏眼含笑意，鼻梁挺直，唇色自然。墨色长发自然垂落，发尾微卷，刘海轻覆额头。她身穿一件奶白色针织开衫，内搭同色系高领内搭，领口点缀一条细银链，锁骨处一枚小月亮吊坠，下身是浅驼色直筒裤。她双手自然交叠于身前，嘴角微扬，神情温柔从容。柔和漫射的窗光从侧面打来，为发丝勾勒出细腻光边，皮肤呈现通透质感，背景虚化成一团温暖的米色光晕，浅景深，85mm 镜头，氛围安静治愈。"
     )
-    
-    faceless: str | None = Field(
-        default=None,
-        description="人物全身的定妆描述，不可以与肖像描述冲突，不需要描述脸部细节。如果不出镜，则不填。例如：" \
-        "这是一位25岁女性，身材高挑纤细，留着一头利落的深棕色齐肩锁骨短发。全身穿着一件版型硬挺的米色双排扣中长款风衣，里面叠穿黑色高领针织衫。下身是修身的深色西装裤，脚踩一双黑色细跟皮质踝靴。整体散发着职场轻熟女的知性与干练气质。"
-    )
+
 
 class CharacterManifest(BaseModel):
     character_list: list[CharacterAsset] = Field(..., description="角色资产信息")
@@ -379,15 +438,29 @@ class CharacterManifest(BaseModel):
 PRODUCER_SYSTEM_PROMPT = """
 # Role
 
-你是一位技术型电影制片人，专门负责从剧本中提取出具体需要采购和制作的“资产清单”（Asset Manifest）。
+你是一位技术型电影制片人，同时是精通 AI 图像生成的提示词工程师。你专门负责从剧本中提取出具体需要采购和制作的”资产清单”（Asset Manifest），并为每个出镜角色撰写可用于 AI 绘图的、电影级的”定妆照提示词”。
 
 # Task
 
-阅读用户提供的描述信息，提取出本片中所有需要出镜的实体角色，并为他们定制用于 AI 绘图的“定妆照提示词”。
+阅读用户提供的描述信息，提取出本片中所有需要出镜的实体角色，并为每个角色写一段高质量、写实、电影级的中文定妆照提示词（visual_anchor_prompt），用于控制 AI 生成该角色的一致长相。
 
 # Rules
 
 - 提取完整性：必须遍历所有分镜和角色清单，找出所有出镜的角色，不出镜角色不需要提取。
+- 一致性优先：提示词必须能让 AI 在后续多个分镜中稳定复现同一张脸，因此要写清五官、发型、年龄、体型等可复现的锚点特征。
+
+# 定妆照提示词写作规范（visual_anchor_prompt）
+
+必须用一段连贯、写实的自然语言描述，**不要用逗号分隔的标签堆砌，也不要写成键值对清单**。按以下顺序展开成一个完整的段落：
+
+1. 主体开场：一句点明角色（性别、年龄段、职业/身份感）、正对镜头、单人构图。
+2. 面部锚点：五官形状（眉、眼、鼻、唇）、肤色、脸型、发型与发色——这是保证跨分镜长相一致的核心，务必具体。
+3. 服装与配饰：款式、颜色、材质、标志性配饰（首饰、领口、腰带等），细节要可被视觉化。
+4. 姿态与表情：自然放松的姿态，明确的神情（温和、锐利、疲惫等）。
+5. 光线与摄影：布光方向与质感（柔和窗光、硬朗顶光、金色逆光等）、皮肤质感、景深、焦段、氛围词。
+6. 背景：干净、不喧宾夺主，起到烘托人物的作用即可。
+
+语言要求：写实、具体、有画面感，避免抽象或主观的修饰（如"很美""气质好"），代之以可被模型量化的视觉特征（如"长发及腰""肤色冷白""眼神专注"）。全程使用中文，风格统一、克制、专业。
 """
 
 PRODUCER_QUERY_PROMPT = """
@@ -409,10 +482,123 @@ PRODUCER_QUERY_PROMPT = """
 ```
 
 {retry_messages}
+【输出格式要求】（必须严格遵守）：
+- 输出一个 JSON 对象，顶层必须是 "character_list" 字段，其值为角色对象数组。
+- 数组中每个角色对象，字段名必须严格为以下两个：
+  - "role_name"：字符串，角色名，必须与【角色清单】中的 role_name 完全一致，严禁编造。
+  - "visual_anchor_prompt"：字符串或 null。该角色出镜时填写一段中文电影级定妆照提示词（单人、正脸、干净背景，用于 AI 生成一致性长相）；不出镜则为 null。
+- 禁止使用 ```json 代码块包裹整个输出，直接输出 JSON 本体。
+- 禁止输出任何解释性文字、Markdown 标题或额外字段。
 请输出角色资产信息：
 """
 
 producer_model = model.with_structured_output(CharacterManifest)
+
+
+async def ainvoke_producer_robust(messages, config=None) -> CharacterManifest:
+    """调用角色资产模型并容错解析。
+
+    与 ainvoke_storyboard_robust 同理：部分模型对 json_schema 遵循不稳定，
+    可能返回 Markdown 围栏/标题包裹的内容。失败时退回原始文本解析。
+    """
+    try:
+        return await producer_model.ainvoke(messages, config=config)
+    except Exception as e:
+        logger.warning(f'producer structured output failed, fallback to manual parse: {str(e)[:200]}')
+        raw = await model.ainvoke(messages, config=config)
+        content = raw.content if isinstance(raw.content, str) else str(raw.content)
+        cleaned = strip_markdown_fence(content)
+        try:
+            data = json.loads(cleaned)
+        except json.JSONDecodeError:
+            cleaned = strip_markdown_fence(strip_markdown_fence(cleaned))
+            data = json.loads(cleaned)
+        if isinstance(data, dict) and "character_list" in data:
+            return CharacterManifest.model_validate(data)
+        if isinstance(data, dict) and "characters" in data:
+            return CharacterManifest(character_list=data["characters"])
+        if isinstance(data, dict) and "roles" in data:
+            return CharacterManifest(character_list=data["roles"])
+        raise ValueError(f"无法解析的角色资产输出: {cleaned[:200]}")
+
+
+def _extract_json_dict(content: str) -> dict | list:
+    """剥离 Markdown 围栏/标题并解析为 JSON。"""
+    cleaned = strip_markdown_fence(content)
+    try:
+        return json.loads(cleaned)
+    except json.JSONDecodeError:
+        cleaned = strip_markdown_fence(strip_markdown_fence(cleaned))
+        return json.loads(cleaned)
+
+
+async def ainvoke_structured_robust(
+    structured_model,
+    schema,
+    messages,
+    config=None,
+    *,
+    array_key: str | None = None,
+    alias_map: dict | None = None,
+    name: str = "output",
+):
+    """通用结构化输出容错调用。
+
+    deepseek-v4-flash 等模型对 json_schema 遵循不稳定，可能返回 Markdown 围栏/
+    标题包裹或字段漂移的 JSON。先尝试 with_structured_output 快路径，失败时
+    退回原始文本解析（剥围栏 + 兼容字段别名）。
+
+    Args:
+        structured_model: with_structured_output 包装后的模型。
+        schema: Pydantic 模型类，用于校验。
+        messages: 输入消息。
+        config: 调用配置。
+        array_key: 若模型可能返回纯数组而非 {key: [...]}，此参数指定 key。
+        alias_map: 模型漂移字段到 schema 字段的映射，例如 {"voice_type": "selected_voice_type"}。
+        name: 错误信息中的描述名。
+    """
+    try:
+        return await structured_model.ainvoke(messages, config=config)
+    except Exception as e:
+        logger.warning(f'{name} structured output failed, fallback to manual parse: {str(e)[:200]}')
+        raw = await model.ainvoke(messages, config=config)
+        content = raw.content if isinstance(raw.content, str) else str(raw.content)
+        try:
+            data = _extract_json_dict(content)
+        except Exception as parse_err:
+            from pydantic import ValidationError
+            raise ValidationError.from_exception_data(
+                schema.__name__, [{"type": "json_invalid", "loc": ("root",), "input": content[:200], "ctx": {"error": str(parse_err)}}]
+            )
+
+        if isinstance(data, list):
+            if array_key:
+                return schema(**{array_key: data})
+            from pydantic import ValidationError
+            raise ValidationError.from_exception_data(
+                schema.__name__, [{"type": "json_invalid", "loc": ("root",), "input": content[:200], "ctx": {"error": "expected object, got array"}}]
+            )
+
+        if not isinstance(data, dict):
+            from pydantic import ValidationError
+            raise ValidationError.from_exception_data(
+                schema.__name__, [{"type": "json_invalid", "loc": ("root",), "input": content[:200], "ctx": {"error": "expected object"}}]
+            )
+
+        if alias_map:
+            for drift_key, real_key in alias_map.items():
+                if drift_key in data and real_key not in data:
+                    data[real_key] = data.pop(drift_key)
+
+        try:
+            return schema.model_validate(data)
+        except Exception as e:
+            from pydantic import ValidationError
+            if isinstance(e, ValidationError):
+                raise
+            raise ValidationError.from_exception_data(
+                schema.__name__, [{"type": "value_error", "loc": ("root",), "input": content[:200], "ctx": {"error": str(e)}}]
+            )
 
 
 #选择音色 ##########################################################################################################
@@ -432,14 +618,11 @@ VOICE_SELECT_PROMPT = """
 请从以下【候选音色列表】中，挑选出最符合【剧本人物描述】的一款音色。
 
 【剧本人物描述】：
-```Text
 {target_desc}
-```
 
 【候选音色列表】：
-```Json
 {voice_dict}
-```
+
 
 # Rules
 【评审要求】：
@@ -447,6 +630,16 @@ VOICE_SELECT_PROMPT = """
 2. 必须且只能从列表中选择一个最完美的 `key`。
 3. 上次错误经验（可能为空）：
 {error_msg}
+
+# Output Format
+请严格按照规定的 JSON 格式输出，包含以下两个字段：
+
+selected_voice_type: 选中音色在候选列表中的 key（例如 "ICL_ur...aojiaogongzi_tob"）
+
+reason: 选择该音色的一句话理由
+
+【严重警告】：
+绝对不要输出任何 Markdown 标记（不要使用 json 或 ），仅输出纯 JSON 字符串！
 """
 
 
@@ -535,11 +728,10 @@ SCENE_GENERATE_PROMPT = """
 你是一名专业电影美术指导和 AI 图像提示词工程师。
 
 你的任务：
-根据【场景清单】、【整体视觉风格】，生成多个对应场景的适用于 FLUX2 文生图模型生成【场景参考图（Scene Asset）】的提示词。
+根据【场景清单】、【整体视觉风格】，为每个场景生成一段适用于 Krea2 文生图模型的、电影级写实的【场景参考图（Scene Asset）】提示词。
 
 目标：
-生成多个高质量、电影级、写实的场景图片提示词。
-该提示词生成的图片会作为多个视频分镜共享的场景资产，因此必须保持稳定、通用，不包含具体人物。
+生成高质量、电影级、写实的场景提示词，供多个视频分镜共享作为场景资产。因此必须稳定、通用、可复现，且**不含任何人物**。
 
 输入：
 
@@ -552,61 +744,24 @@ SCENE_GENERATE_PROMPT = """
 【上次报错信息】（可能为空）
 {error_message}
 
-生成要求：
+【输出格式要求】（必须严格遵守，输出 JSON）：
+- 输出一个 JSON 对象，顶层必须是 "scene_prompt_list" 字段，其值为场景提示词对象数组。
+- 数组中每个场景对象，字段名必须严格为以下两个：
+  - "scene_name"：字符串，场景名，必须与【场景清单】中的 scene_name 字段完全一致，严禁编造。
+  - "scene_prompt"：字符串，该场景的电影级写实提示词（见下方写作规范）。
+- 禁止使用 ```json 代码块包裹整个输出，直接输出 JSON 本体。
+- 禁止输出任何解释性文字、Markdown 标题或额外字段。
 
-1. 只描述环境和空间，不生成人物。
-禁止出现：
-- people
-- person
-- man
-- woman
-- character
-- human
-
-
-2. 提取场景中的核心视觉元素：
-- 空间类型（办公室、街道、房间、森林等）
-- 建筑结构
-- 家具和物品
-- 材质
-- 色彩
-- 氛围
-
-
-3. 增强电影摄影效果：
-必须包含：
-- cinematic composition
-- realistic lighting
-- detailed environment
-- professional photography
-
-
-4. 根据场景类型补充合理细节：
-例如：
-办公室：
-- desk
-- computer
-- window
-- office furniture
-
-古代宫殿：
-- stone floor
-- wooden structure
-- traditional decoration
-
-森林：
-- trees
-- fog
-- sunlight rays
-
-
-5. 输出必须是 FLUX 推荐格式：
-
-[主体环境描述],
-[空间细节],
-[材质和颜色],
-[光照氛围],
-[摄影参数]
+【scene_prompt 写作规范】：
+1. 只描述环境与空间，严禁出现任何人物。禁止使用以下词汇：people、person、man、woman、character、human、girl、boy、crowd、portrait。
+2. 写一段连贯、写实的自然语言描述（不要用逗号标签堆砌，不要用键值对清单），按以下顺序展开：
+   - 空间与主体：点明场景类型（办公室、街道、房间、森林等）与核心主体结构；
+   - 空间细节：建筑结构、家具、物品、材质（木、石、玻璃、织物等），按空间从近到远交代层次；
+   - 色彩与光影：整体色调、光源方向与质感（暖色顶灯、冷调窗光、金色逆光、霓虹等）、明暗对比；
+   - 氛围：通过空气感（雾气、尘粒、光晕）、天气、时间感来传递情绪基调；
+   - 摄影参数：镜头焦段、景深、构图、拍摄视角，让画面有电影摄影质感。
+3. 保持场景资产的中立性：画面中不要隐含叙事或人物活动的强暗示，让任何分镜都能套用。
+4. 语言风格：写实、具体、有画面感，避免抽象形容（如"氛围很好"），代之以可视觉化的特征（如"低角度广角"、"通透的漫射光"、"深褐木质地板"）。使用中文。
 """
 
 scene_generate_model = model.with_structured_output(SceneManifest)

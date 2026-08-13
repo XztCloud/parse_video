@@ -57,7 +57,7 @@ def log_node_start():
     logger.info(f"======== 🚀 LangGraph 节点开始执行: [{caller_name}] ========")
 
 async def generate_storyboard(state: CloneStoryboardState):
-    from app.services.llm import STORYBOARD_SYSTEM_PROMPT, STORYBOARD_QUERY_PROMPT, storyboard_model
+    from app.services.llm import STORYBOARD_SYSTEM_PROMPT, STORYBOARD_QUERY_PROMPT, ainvoke_storyboard_robust
     log_node_start()
     db = process_loop.AsyncSessionLocal()
     try:
@@ -97,7 +97,7 @@ async def generate_storyboard(state: CloneStoryboardState):
             logger.info(f'query: {query}')
             logger.info(f'storyboard_model messages len: {len(messages)}')
         
-            response = await storyboard_model.ainvoke(
+            response = await ainvoke_storyboard_robust(
                 messages,
                 config={
                     "configurable": {

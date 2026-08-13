@@ -16,7 +16,7 @@ from app.models.script import CloneStatus
 from app.tasks.process_loop_manager import process_loop
 from app.models.script import CloneScript, Script
 from app.models.video import Video
-from app.services.llm import REDUCE_LINES_PROMPT, CloneAnalysis, CloneAnalysisFocus, CloneAnalysisPlot, ReduceLines, reduce_lines_model
+from app.services.llm import REDUCE_LINES_PROMPT, CloneAnalysis, CloneAnalysisFocus, CloneAnalysisPlot, ReduceLines, ainvoke_structured_robust, reduce_lines_model
 from app.util import calculate_duration_units, make_dir
 from app.config import settings
 from celery.utils.log import get_task_logger
@@ -145,7 +145,7 @@ async def convert_clone_to_md(response: CloneAnalysis, dir_path: str, clone_scri
 
 
 async def creative_focus_output(analysis_focus, clone_theme):
-    from app.services.llm import CREATIVE_SYSTEM_PROMPT, CREATIVE_QUERY_PROMPT, creative_model_focus, creative_model_focus_strict
+    from app.services.llm import CREATIVE_SYSTEM_PROMPT, CREATIVE_QUERY_PROMPT, CloneAnalysisFocus, creative_model_focus, creative_model_focus_strict, ainvoke_structured_robust
     error_message = ''
     try:
         query =  CREATIVE_QUERY_PROMPT.format(
@@ -158,13 +158,16 @@ async def creative_focus_output(analysis_focus, clone_theme):
             SystemMessage(CREATIVE_SYSTEM_PROMPT),
             HumanMessage(query)
         ]
-        response = await creative_model_focus.ainvoke(
-            messages,
+        response = await ainvoke_structured_robust(
+            creative_model_focus, CloneAnalysisFocus, messages,
             config={
                 "configurable": {
                     "temperature":1.0
                 }
-            })
+            },
+            name="CloneAnalysisFocus",
+            alias_map={"roles": "role_library", "characters": "role_library", "scenes": "scene_library"},
+        )
         return response
 
     except (ValidationError, OutputParserException) as e:
@@ -194,17 +197,20 @@ async def creative_focus_output(analysis_focus, clone_theme):
         SystemMessage(CREATIVE_SYSTEM_PROMPT),
         HumanMessage(query)
     ]
-    response = await creative_model_focus_strict.ainvoke(
-        messages,
+    response = await ainvoke_structured_robust(
+        creative_model_focus_strict, CloneAnalysisFocus, messages,
         config={
             "configurable": {
                 "temperature":1.0
             }
-        })
+        },
+        name="CloneAnalysisFocus(strict)",
+        alias_map={"roles": "role_library", "characters": "role_library", "scenes": "scene_library"},
+    )
     return response
 
 async def creative_plot_output(ori_plot_script, new_plot_focus):
-    from app.services.llm import CREATIVE_SYSTEM_PROMPT, CREATIVE_PLOT_QUERY_PROMPT, creative_model_plot, creative_model_plot_strict
+    from app.services.llm import CREATIVE_SYSTEM_PROMPT, CREATIVE_PLOT_QUERY_PROMPT, CloneAnalysisPlot, creative_model_plot, creative_model_plot_strict, ainvoke_structured_robust
     try:
         query = CREATIVE_PLOT_QUERY_PROMPT.format(
             ori_plot=ori_plot_script,
@@ -215,13 +221,16 @@ async def creative_plot_output(ori_plot_script, new_plot_focus):
             SystemMessage(CREATIVE_SYSTEM_PROMPT),
             HumanMessage(query)
         ]
-        response = await creative_model_plot.ainvoke(
-            messages,
+        response = await ainvoke_structured_robust(
+            creative_model_plot, CloneAnalysisPlot, messages,
             config={
                 "configurable": {
                     "temperature":1.0
                 }
-            })
+            },
+            name="CloneAnalysisPlot",
+            alias_map={"plot_scripts": "plot_script", "plot": "plot_script", "plot_script_list": "plot_script"},
+        )
         return response
 
     except (ValidationError, OutputParserException) as e:
@@ -250,13 +259,16 @@ async def creative_plot_output(ori_plot_script, new_plot_focus):
         SystemMessage(CREATIVE_SYSTEM_PROMPT),
         HumanMessage(query)
     ]
-    response = await creative_model_plot_strict.ainvoke(
-        messages,
+    response = await ainvoke_structured_robust(
+        creative_model_plot_strict, CloneAnalysisPlot, messages,
         config={
             "configurable": {
                 "temperature":1.0
             }
-        })
+        },
+        name="CloneAnalysisPlot(strict)",
+        alias_map={"plot_scripts": "plot_script", "plot": "plot_script", "plot_script_list": "plot_script"},
+    )
     return response
 
 async def creative_plot(state: ClonePlotState) -> Command[Literal['process_error', '__end__']]:
@@ -331,13 +343,16 @@ async def creative_plot(state: ClonePlotState) -> Command[Literal['process_error
                     )
                     logger.info(f'query:{query}')
 
-                    reduce_lines = await reduce_lines_model.ainvoke(
-                        [HumanMessage(query)],
+                    reduce_lines = await ainvoke_structured_robust(
+                        reduce_lines_model, ReduceLines, [HumanMessage(query)],
                         config={
                             "configurable": {
                                 "temperature":0.1
                             }
-                        })
+                        },
+                        name="ReduceLines",
+                        alias_map={"lines": "actor_lines", "line_list": "actor_lines"},
+                    )
                     if not isinstance(reduce_lines, ReduceLines):
                         raise Exception("llm输出格式错误")
 

@@ -13,12 +13,13 @@ from langchain.messages import AIMessage, AnyMessage, HumanMessage, SystemMessag
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import Command, RetryPolicy
 from pydantic import BaseModel
+import requests
 from sqlalchemy import delete, select
 from app.tasks.process_loop_manager import process_loop
 from app.models.script import CloneImage, CloneRoleImage, CloneSceneImage, CloneScript, CloneScriptSegment, CloneSegmentImg, CloneStatus, GenerateStatus, ScriptSegment
 from app.services.clone_plot import send_fail_status
 from app.services.gen_image import GenImage, GenImageParams, ImageSize, ReferImageInfo
-from app.services.llm import SCENE_GENERATE_PROMPT, CharacterManifest, CloneAnalysis, SceneManifest, SegmentRoleView, scene_generate_model
+from app.services.llm import SCENE_GENERATE_PROMPT, CharacterManifest, CloneAnalysis, SceneManifest, SegmentRoleView, scene_generate_model, ainvoke_structured_robust
 from app.config import settings
 from app.util import ImageRegenerateInput, async_retry_error, get_image_info, make_dir
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -45,7 +46,7 @@ class CloneImageState(TypedDict):
 
 
 async def abstract_role_info(state: CloneImageState):
-    from app.services.llm import PRODUCER_QUERY_PROMPT, PRODUCER_SYSTEM_PROMPT, producer_model
+    from app.services.llm import PRODUCER_QUERY_PROMPT, PRODUCER_SYSTEM_PROMPT, ainvoke_producer_robust
     log_node_start()
     db = process_loop.AsyncSessionLocal()
     try:
@@ -84,7 +85,7 @@ async def abstract_role_info(state: CloneImageState):
         )
         messages = [SystemMessage(PRODUCER_SYSTEM_PROMPT),
                     HumanMessage(query)]
-        response = await producer_model.ainvoke(
+        response = await ainvoke_producer_robust(
             messages,
             config={
                 "configurable": {
@@ -179,13 +180,16 @@ async def abstract_scene_info(state: CloneImageState):
             visual_style=global_style,
             error_message=generate_error_msg.get()
         )
-        response = await scene_generate_model.ainvoke(
-            [HumanMessage(query)],
+        response = await ainvoke_structured_robust(
+            scene_generate_model, SceneManifest, [HumanMessage(query)],
             config={
                 "configurable": {
                     "temperature":0.7
                 }
-            })
+            },
+            name="SceneManifest",
+            alias_map={"scenes": "scene_prompt_list", "prompts": "scene_prompt_list"},
+        )
         if not isinstance(response, SceneManifest):
             generate_error_msg.set('生成结果格式不正确')
             raise Exception('生成结果格式不正确')
@@ -214,11 +218,15 @@ async def generate_image(prompt: str, save_dir: str|Path, prefix:str,  img_type:
     if settings.USER_COMFY_IMAGE:
         match img_type:
             case 'role':
-                params.image_size=ImageSize.SIZE_512x640
-                image_path_list = await GenImage.t2i_local_flux2_klien(gen_image_params=params, save_dir=save_dir, prefix=prefix)
+                # 旧版 flux2-klien
+                # params.image_size=ImageSize.SIZE_512x640
+                # image_path_list = await GenImage.t2i_local_flux2_klien(gen_image_params=params, save_dir=save_dir, prefix=prefix)
+                # 新版 krea2 生成人物四视图
+                image_path_list = await GenImage.t2i_role_local_krea2(gen_image_params=params, save_dir=save_dir, prefix=prefix)
             case 'scene':
                 params.image_size=ImageSize.SIZE_1280x720
-                image_path_list = await GenImage.t2i_local_flux2_klien(gen_image_params=params, save_dir=save_dir, prefix=prefix)
+                # image_path_list = await GenImage.t2i_local_flux2_klien(gen_image_params=params, save_dir=save_dir, prefix=prefix)
+                image_path_list = await GenImage.t2i_local_krea2(gen_image_params=params, save_dir=save_dir, prefix=prefix)
             case 'frame':
                 # 这里要根据目标宽高比设置，目前指定竖屏
                 params.image_size=ImageSize.SIZE_720x1280
@@ -295,7 +303,7 @@ async def initial_role_images(state: CloneImageState) -> Command[Literal['initia
                     path=str(image_path.absolute()),
                     desc='角色肖像',
                     prompt=character.visual_anchor_prompt,
-                    faceless=character.faceless,
+                    # faceless=character.faceless,
                     seed=seed,
                     status=GenerateStatus.SUCCESS,
                     version=0,
@@ -482,9 +490,13 @@ async def regenerate_image(detail_category: Literal['role', 'scene'], id: int, p
         image_element.name_comfy = name_comfy
         
         await db.commit()
-    except ValueError:
-        logger.exception('regenerate_image 发生错误, 未找到数据')
-        raise
+    # except ValueError:
+    #     logger.exception('regenerate_image 发生错误, 未找到数据')
+    #     await db.rollback()  # ✅ 先回滚，重置数据库 Session 状态
+    #     if image_element:
+    #         image_element.status = GenerateStatus.FAILED
+    #         await db.commit()
+    #     raise
     except Exception as e:
         logger.exception('regenerate_image 发生错误')
         await db.rollback()  # ✅ 先回滚，重置数据库 Session 状态
@@ -494,3 +506,20 @@ async def regenerate_image(detail_category: Literal['role', 'scene'], id: int, p
         raise
     finally:
         await db.close()
+        
+async def upload_img_to_comfy(refer_img_list: list[ReferImageInfo]):
+    url = settings.COMFY_URL + '/upload/image'
+    for image_path in refer_img_list:
+        with open(image_path.path, "rb") as f:
+            # files 字典的 key 必须是 'image'
+            files = {"image": f}
+            # 如果需要，可以通过 overwrite 覆盖同名文件
+            data = {"overwrite": "true"}
+            response = requests.post(url, files=files, data=data)
+
+        if response.status_code == 200:
+            result = response.json()
+            image_path.name_comfy = result["name"]  # 返回服务器上的文件名（例如: "example.png"）
+            logger.info(f'send comfy name is {image_path.name_comfy}')
+        else:
+            raise Exception(f"图片上传失败: {response.text}")

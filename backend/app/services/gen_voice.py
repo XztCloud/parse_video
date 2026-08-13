@@ -330,7 +330,7 @@ class GenVoice:
 
         @async_retry_error
         async def llm_select_voice():
-            from app.services.llm import voice_model, VOICE_SELECT_PROMPT
+            from app.services.llm import voice_model, VOICE_SELECT_PROMPT, ainvoke_structured_robust
             nonlocal llm_error_meg
             try:
                 query = VOICE_SELECT_PROMPT.format(
@@ -339,13 +339,15 @@ class GenVoice:
                     error_msg=llm_error_meg
                 )
                 logger.info(f'select voice query is {query}')
-                response = await voice_model.ainvoke(
-                    [HumanMessage(query)],
+                response = await ainvoke_structured_robust(
+                    voice_model, SelectVoiceID, [HumanMessage(query)],
                     config={
                         "configurable": {
                             "temperature": 1.0
                         }
-                    }
+                    },
+                    name="SelectVoiceID",
+                    alias_map={"音色": "selected_voice_type", "voice_type": "selected_voice_type"},
                 )
 
                 if not isinstance(response, SelectVoiceID):

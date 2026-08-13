@@ -165,7 +165,7 @@ async def get_clone_script_detail(clone_script_id: int, db: AsyncSessionDep):
 
 
 @router.get("/voice/{voice_id}")
-async def export_voice(voice_id: str, db: AsyncSessionDep):
+async def export_voice(voice_id: int, db: AsyncSessionDep):
     """
     传入 voice id，返回音频文件流（前端可通过 Blob 接收）
     """
