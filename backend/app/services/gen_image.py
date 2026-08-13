@@ -24,6 +24,8 @@ from app.services.comfy.wrap_comfy import WrapComfy
 logger = get_task_logger(__name__)
 
 class ImageSize(enum.Enum):
+    SIZE_768x1280= "768x1280"
+    
     SIZE_512x512 = "512x512"
     SIZE_512x640 = "512x640"
     SIZE_720x1280 = "720x1280"
@@ -90,6 +92,7 @@ class GenImageParams(BaseModel):
     negative_prompt: Optional[str] = Field(default=None, description='指定不希望在生成图片中出现的内容。')
     batch_size:int = Field(default=1, ge=1, le=4, description='批量生图')
     seed:Optional[int] = Field(default=None, le=9999999999, description='随机种子，用于控制生成过程的随机性。使用相同的种子值可以生成相似的图片。')
+    seed2:Optional[int] = Field(default=None, le=9999999999, description='随机种子，用于控制生成过程的随机性。使用相同的种子值可以生成相似的图片。在人物四视图中使用')
     num_inference_steps:int = Field(default=20, ge=0, le=100, description='推理步数。步数越多，生成质量通常越高，但耗时也更长。')
     guidance_scale: float = Field(
         default=0.75, le=20.0, 
@@ -364,7 +367,19 @@ class GenImage:
         
     @staticmethod
     async def i2i_local_flux2_klien(gen_image_params: GenImageParams, save_dir:str|Path, prefix:str) -> list:
-        print('hello world.')
+        """多图参考生成视频帧图片
+
+        Args:
+            gen_image_params (GenImageParams): 提示词、size、参考图等
+            save_dir (str | Path): 保存路径
+            prefix (str): 名称前缀
+
+        Raises:
+            Exception: _description_
+
+        Returns:
+            list: _description_
+        """
         if len(gen_image_params.refer_images) == 0:
             raise Exception('not find any refer image')
         
@@ -413,6 +428,18 @@ class GenImage:
 
     @staticmethod
     async def ai2v_local_flux2_klien(gen_video_params: GenVideoParams, save_dir:str|Path) -> str:
+        """音频和图片生成视频
+
+        Args:
+            gen_video_params (GenVideoParams): 参考帧等
+            save_dir (str | Path): 保存路径
+
+        Raises:
+            Exception: 没有参考帧
+
+        Returns:
+            str: 视频路径
+        """
         if len(gen_video_params.refer_images) == 0:
             raise Exception('not find any refer asset')
         if not gen_video_params.seed:
@@ -468,6 +495,93 @@ class GenImage:
         make_dir(save_dir, re_create=False)
         path = await api.download_and_save_videos(wf=wf, output_node_title='保存视频', save_dir=save_dir)
         print(f'path is {path}')
+        
+    @staticmethod
+    async def t2i_local_krea2(gen_image_params: GenImageParams, save_dir:str|Path, prefix:str) -> list[Path]:
+        """使用本地krea2模型文本生图片
+
+        Args:
+            gen_image_params (GenImageParams): 参考提示词、size
+            save_dir (str | Path): 保存路径
+            prefix (str): 文件前缀
+
+        Raises:
+            Exception: _description_
+
+        Returns:
+            list[Path]: 图片路径
+        """
+        if not gen_image_params.seed:
+            gen_image_params.seed= random.randint(100000000000000, 999999999999999)
+        positive_prompt = gen_image_params.prompt
+        
+        api = ApiComfy()
+        wf = WrapComfy("app/services/comfy/resource/workflow/worker_krea2_t2i.json")
+        
+        wf.set_node_param("空Latent图像", "height", gen_image_params.image_size.height)
+        wf.set_node_param("空Latent图像", "width", gen_image_params.image_size.width)
+        wf.set_node_param("CLIP文本编码", "text", positive_prompt)
+        wf.set_node_param("K采样器", "seed", gen_image_params.seed)
+        logger.info('begine wait images')
+        results = await api.queue_and_wait_images(wf, output_node_title="保存图像")
+        logger.info(f'end wait images, results is {results}')
+        cnt = 0
+        img_path = []
+        for name_in_comfy, image_data in results.items():
+            logger.info(f'name_in_comfy is {name_in_comfy}')
+            file_name = f'{prefix}_{cnt}.png'
+            dest_dir = Path(save_dir)
+            dest_dir.mkdir(parents=True, exist_ok=True)
+            out_path = dest_dir / file_name
+
+            with open(out_path, "wb+") as f:
+                f.write(image_data)
+            img_path.append([name_in_comfy, out_path])
+            cnt += 1
+        return img_path
+    
+    @staticmethod
+    async def t2i_role_local_krea2(gen_image_params: GenImageParams, save_dir:str|Path, prefix:str) -> list[Path]:
+        """根据人物形象图生成完整四视图
+
+        Args:
+            gen_image_params (GenImageParams): 人物形象图以及宽高等参数
+            save_dir (str | Path): 保存路径
+            prefix (str): 文件前缀
+
+        Raises:
+            Exception: _description_
+
+        Returns:
+            list[Path]: 输出图片保存路径
+        """
+        if not gen_image_params.seed:
+            gen_image_params.seed= random.randint(100000000000000, 999999999999999)
+        if not gen_image_params.seed2:
+            gen_image_params.seed2= random.randint(100000000000000, 999999999999999)
+        positive_prompt = gen_image_params.prompt
+        api = ApiComfy()
+        wf = WrapComfy("app/services/comfy/resource/workflow/worker_krea2_四视图.json")
+        wf.set_node_param("CLIP文本编码 (阶段1)", "text", positive_prompt)
+        wf.set_node_param("K采样器 (阶段1)", "seed", gen_image_params.seed)
+        wf.set_node_param("K采样器 (阶段2)", "seed", gen_image_params.seed2)
+        logger.info('begine wait images')
+        results = await api.queue_and_wait_images(wf, output_node_title="保存四视图图像")
+        logger.info(f'end wait images, results is {results}')
+        cnt = 0
+        img_path = []
+        for name_in_comfy, image_data in results.items():
+            logger.info(f'name_in_comfy is {name_in_comfy}')
+            file_name = f'{prefix}_{cnt}.png'
+            dest_dir = Path(save_dir)
+            dest_dir.mkdir(parents=True, exist_ok=True)
+            out_path = dest_dir / file_name
+
+            with open(out_path, "wb+") as f:
+                f.write(image_data)
+            img_path.append([name_in_comfy, out_path])
+            cnt += 1
+        return img_path
         
 if __name__ == '__main__':
     

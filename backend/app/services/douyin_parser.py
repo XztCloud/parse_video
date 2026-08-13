@@ -14,10 +14,18 @@ class DouyinParser:
         
 
     @staticmethod
+    def _cookiefile_option() -> dict:
+        """从配置读取抖音 cookies 文件，返回 yt-dlp 的 cookiefile 选项（无配置则空）。"""
+        cookie_file = getattr(settings, 'DOUYIN_COOKIES_FILE', '')
+        if cookie_file and os.path.isfile(cookie_file):
+            return {"cookiefile": cookie_file}
+        return {}
+
+    @staticmethod
     def download_video_yt(url: str, output_dir: str = None) -> tuple[str, str]:
         if output_dir is None:
             output_dir = settings.UPLOAD_DIR
-        
+
         pattern = r'https?://[^\s]+'
         match = re.search(pattern, url)
 
@@ -27,8 +35,9 @@ class DouyinParser:
         else:
             print("未找到链接")
             raise ValueError("无效的链接")
-        
-        info_opts = {'quiet': True, 'skip_download': True}
+
+        cookie_opts = DouyinParser._cookiefile_option()
+        info_opts = {'quiet': True, 'skip_download': True, **cookie_opts}
 
         with yt_dlp.YoutubeDL(info_opts) as ydl:
             info = ydl.extract_info(url, download=False)
@@ -46,7 +55,7 @@ class DouyinParser:
 
         abs_output_dir = os.path.abspath(output_dir)
         os.makedirs(abs_output_dir, exist_ok=True)
-        ydl_opts = {"outtmpl": os.path.join(abs_output_dir, "%(id)s.%(ext)s"), "format": "best", "quiet": True}
+        ydl_opts = {"outtmpl": os.path.join(abs_output_dir, "%(id)s.%(ext)s"), "format": "best", "quiet": True, **cookie_opts}
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=True)
             title = info.get("title", "unknown")

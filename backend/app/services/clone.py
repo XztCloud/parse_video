@@ -129,7 +129,8 @@ async def image_base_generation(state: CloneState):
 async def segment_frame_generation(state:CloneState):
     try:
         logger.info('begin run segment_frame_generation')
-        await generate_segment_frame_prompt(state["clone_script_id"])
+        # 使用ref合成视频，跳过首帧
+        # await generate_segment_frame_prompt(state["clone_script_id"])
         return {
             'step': 6
         }

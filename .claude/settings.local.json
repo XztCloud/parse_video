@@ -49,7 +49,9 @@
       "Bash(wsl -d ubuntu -e bash -c \"cd /home/xztcloud/.smarttr/workspace/parse_video && git diff backend/app/services/clone.py\")",
       "Bash(wsl -d ubuntu -e bash -c \"cd /home/xztcloud/.smarttr/workspace/parse_video && echo '=== GH_TOKEN env ==='; env | grep -i 'GH_\\\\|GITHUB' || echo 'no GH env vars'; echo '=== git push auth test \\(dry-run\\) ==='; git push --dry-run origin main 2>&1 | head -5; echo '=== ssh to github ==='; timeout 8 ssh -T git@github.com 2>&1 | head -3\")",
       "Bash(wsl -d ubuntu -e bash -c \"cd /home/xztcloud/.smarttr/workspace/parse_video && git stash list 2>&1; echo '--- reflog recent ---'; git reflog -5 2>&1; echo '--- untracked md files ---'; ls -la 簡歷項目經歷.md 項目流程文檔.md 2>/dev/null; ls -la .claude/ 2>/dev/null\")",
-      "Bash(wsl -d ubuntu -e bash -c \"cd /home/xztcloud/.smarttr/workspace/parse_video && echo '=== clone.py \\(mine\\) ==='; git diff backend/app/services/clone.py; echo '=== clone_service.py \\(mine\\) ==='; git diff backend/app/services/clone_service.py\")"
+      "Bash(wsl -d ubuntu -e bash -c \"cd /home/xztcloud/.smarttr/workspace/parse_video && echo '=== clone.py \\(mine\\) ==='; git diff backend/app/services/clone.py; echo '=== clone_service.py \\(mine\\) ==='; git diff backend/app/services/clone_service.py\")",
+      "Bash(wsl -d ubuntu -e bash -c \"cd /home/xztcloud/.smarttr/workspace/parse_video && source .venv/bin/activate && timeout 120 python -m yt_dlp --cookies 'www.douyin.com_cookies.txt' --socket-timeout 30 --skip-download --print '%\\(title\\)s | dur=%\\(duration\\)s' 'https://v.douyin.com/XIDX-0tENRQ/' 2>&1 | tail -8\")",
+      "Bash(wsl -d ubuntu -e bash -c \"cd /home/xztcloud/.smarttr/workspace/parse_video/backend && source ../.venv/bin/activate && timeout 90 python3 tmp_test_scene.py 2>&1 | tail -8\")"
     ]
   }
 }

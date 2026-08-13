@@ -59,7 +59,7 @@ class FilterRoleInfo(BaseModel):
     action: str
     emotion: str
     prompt: str
-    faceless: str # 全身定妆描述词
+    # faceless: str # 全身定妆描述词
     path: str
     
 async def filter_role_info(db: AsyncSession, segment: CloneScriptSegment, clone_script_id: int) -> list[FilterRoleInfo]:
@@ -97,7 +97,7 @@ async def filter_role_info(db: AsyncSession, segment: CloneScriptSegment, clone_
             action=segment_role_view.action,
             emotion=segment_role_view.emotion,
             prompt=role_image.prompt,
-            faceless=role_image.faceless,
+            # faceless=role_image.faceless,
             path=role_image.path
         )
         result.append(filter_role_info)
@@ -137,8 +137,6 @@ async def merge_frame_prompt(scene_info: FilterSceneInfo, role_info_list: list[F
 肖像：
 参考图片{i+1}中的人物脸部特征。
 
-外貌：
-{role_info.faceless}
 
 位置：
 {role_info.position}

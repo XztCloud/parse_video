@@ -23,7 +23,7 @@ from app.services.clone_plot import send_fail_status
 from app.services.llm import CloneAnalysis, ReloadLinesPrompt
 from app.services.predict.predict_voice_duration import PredictVoiceDuration
 from langchain.messages import AIMessage, AnyMessage, HumanMessage, SystemMessage
-from app.services.llm import ReloadLines, reload_lines_model
+from app.services.llm import ReloadLines, ainvoke_structured_robust, reload_lines_model
 from pydub import AudioSegment
 
 
@@ -413,7 +413,11 @@ async def reload_scene_lines(state: CloneVoiceState):
         retry_cnt = 0
         error_message = ''
         while retry_cnt < 3:
-            reload_lines = await reload_lines_model.ainvoke(messages)
+            reload_lines = await ainvoke_structured_robust(
+                reload_lines_model, ReloadLines, messages,
+                name="ReloadLines",
+                alias_map={"lines": "actor_lines", "line_list": "actor_lines"},
+            )
             if not isinstance(reload_lines, ReloadLines):
                 messages.append(AIMessage(reload_lines))
                 error_message = '返回格式错误，请按照执行结构输出'

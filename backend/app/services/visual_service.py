@@ -190,6 +190,7 @@ class VisualService:
     @staticmethod
     async def analyze_frames(scene_infos: list[SceneInfo], fps: float = 1.0) -> list[dict]:
 
+        logger.info(f'running llm is {settings.LLM_NAME}')
         # ===== 运行 =====
         summarizer = VideoFrameSummarizer(
             model_name=settings.LLM_NAME,

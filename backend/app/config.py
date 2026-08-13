@@ -67,6 +67,9 @@ class Settings(BaseSettings):
     COMFY_USER: str
     COMFY_PASSWORD: str
     USER_COMFY_IMAGE: bool=False
+
+    # 抖音下载使用的浏览器 cookies 文件路径（Netscape 格式），可为空
+    DOUYIN_COOKIES_FILE: str = ""
         
     model_config = SettingsConfigDict(
         env_file="../.env",      # 👈 核心：告诉它去上一级目录找 .env

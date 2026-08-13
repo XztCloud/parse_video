@@ -299,7 +299,7 @@ async def get_clone_script_detail(db: AsyncSession, clone_script_id: int) -> dic
     }
 
 
-async def get_voice(db: AsyncSession, voice_id: str) -> CloneVoice | None:
+async def get_voice(db: AsyncSession, voice_id: int) -> CloneVoice | None:
     result = await db.execute(select(CloneVoice).where(CloneVoice.id == voice_id))
     return result.scalar_one_or_none()
 
