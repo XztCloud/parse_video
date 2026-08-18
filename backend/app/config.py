@@ -66,7 +66,8 @@ class Settings(BaseSettings):
     COMFY_URL: str
     COMFY_USER: str
     COMFY_PASSWORD: str
-    USER_COMFY_IMAGE: bool=False
+    USE_COMFY_IMAGE: bool=False
+    USE_COMFY_VIDEO: bool=False
 
     # 抖音下载使用的浏览器 cookies 文件路径（Netscape 格式），可为空
     DOUYIN_COOKIES_FILE: str = ""

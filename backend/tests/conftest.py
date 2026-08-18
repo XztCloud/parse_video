@@ -33,23 +33,25 @@ async def client() -> AsyncGenerator[AsyncClient]:
         yield ac
 
 
-@pytest.fixture(scope="session", autouse=True)
-async def db() -> AsyncGenerator[AsyncSession]:
-    await async_init()
-    async with AsyncSessionLocal() as session:
-
-        yield session
-        
-        statement = delete(Video)
-        await session.execute(statement=statement)
-        
-        statement = delete(User)
-        await session.execute(statement=statement)
-        
-        statement = delete(VoiceInfoCollect)
-        await session.execute(statement=statement)
-        
-        await session.commit()
+# 注意：此夹具会在会话结束时清空 Video / User / VoiceInfoCollect 表。
+# 运行会连真实数据库（含 script_id=55 资产）的测试时，请保持注释状态。
+# @pytest.fixture(scope="session", autouse=True)
+# async def db() -> AsyncGenerator[AsyncSession]:
+#     await async_init()
+#     async with AsyncSessionLocal() as session:
+#
+#         yield session
+#
+#         statement = delete(Video)
+#         await session.execute(statement=statement)
+#
+#         statement = delete(User)
+#         await session.execute(statement=statement)
+#
+#         statement = delete(VoiceInfoCollect)
+#         await session.execute(statement=statement)
+#
+#         await session.commit()
         
 @pytest.fixture(scope="module")
 async def superuser_token_headers(client: AsyncClient) -> dict[str, str]:

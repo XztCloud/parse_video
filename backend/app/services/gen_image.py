@@ -61,6 +61,8 @@ class VideoSize(enum.Enum):
     SIZE_512x512 = "512x512"
     SIZE_480x848 = "480x848"
     SIZE_848x480 = "848x480"
+    
+    SIZE_864x480 = "864x480"
     @property
     def dimensions(self) -> tuple[int, int]:
         w, h = self.value.split('x')
@@ -75,7 +77,7 @@ class VideoSize(enum.Enum):
         return self.dimensions[1]
 
 class ReferImageInfo(BaseModel):
-    type: Literal['role', 'scene', 'frame', 'audio']
+    type: Literal['role', 'scene', 'frame', 'audio', 'ref']
     path: str
     name_comfy: str | None = Field(default=None)
 
@@ -427,7 +429,7 @@ class GenImage:
         return img_path
 
     @staticmethod
-    async def ai2v_local_flux2_klien(gen_video_params: GenVideoParams, save_dir:str|Path) -> str:
+    async def ai2v_local_ltx23(gen_video_params: GenVideoParams, save_dir:str|Path) -> str:
         """音频和图片生成视频
 
         Args:
@@ -582,6 +584,51 @@ class GenImage:
             img_path.append([name_in_comfy, out_path])
             cnt += 1
         return img_path
+    
+    @staticmethod
+    async def i2v_local_minimax_h3(gen_video_params: GenVideoParams, save_dir:str|Path) -> str:
+        """使用ref关联图通过本地minimax_h3模型生成视频
+
+        Args:
+            gen_video_params (GenVideoParams): 视频参数
+            save_dir (str | Path): 保存文件夹路径
+
+        Raises:
+            Exception: _description_
+
+        Returns:
+            str: 视频路径
+        """
+        if not gen_video_params.seed:
+            gen_video_params.seed= random.randint(100000000000000, 999999999999999)
+        logger.info(f'random seed: {gen_video_params.seed}')
+        api = ApiComfy()
+        wf = WrapComfy("app/services/comfy/resource/workflow/worker_minimax_h3_8lora_refi2v.json")
+        base_link_ref = 'ref_images.ref_image_'
+        for index, ref_img in enumerate(gen_video_params.refer_images):
+            if index == 0:
+                # 设置加载图片节点
+                wf.set_node_param('加载图像', 'image', ref_img.name_comfy)
+                continue
+            # 复制加载图像节点，将其他参考图片加入加载到其中
+            ori_loadimage_node = '加载图像'
+            new_loadimage_node = ori_loadimage_node + str(index)
+            wf.copy_node(ori_title=ori_loadimage_node, new_title=new_loadimage_node)
+            wf.set_node_param(new_loadimage_node, 'image', ref_img.name_comfy)
+            
+            id = wf.get_node_id(new_loadimage_node)
+            wf.set_node_param('MiniMax H3 Reference to Video', base_link_ref+str(index), [id, 0])
+        
+        wf.set_node_param('Float (Duration)', 'value', gen_video_params.duration)
+        wf.set_node_param('提示词，如果要ai扩写，请加一句帮我写提示词', 'value', gen_video_params.prompt)
+        wf.set_node_param("随机噪波", "noise_seed", gen_video_params.seed)
+        wf.set_node_param('MiniMax H3 Reference to Video', 'width', gen_video_params.video_size.width)
+        wf.set_node_param('MiniMax H3 Reference to Video', 'height', gen_video_params.video_size.height)
+
+        wf.save_to_file('app/services/comfy/resource/workflow/worker_minimax_h3_8lora_refi2v_runtime.json')
+        gen_video_params.video_path = await api.download_and_save_videos(wf=wf, output_node_title='保存视频', save_dir=save_dir)
+        return gen_video_params.video_path[0]
+        
         
 if __name__ == '__main__':
     
