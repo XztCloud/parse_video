@@ -20,12 +20,15 @@ export default function ImageList({ images }: ScriptImageProps) {
   // key = category + id
   const [regenStatus, setRegenStatus] = useState<Record<string, string>>({});
 
-
-
   // 保存最新图片参数
   const [imageParams, setImageParams] = useState<
     Record<string, Partial<CloneImage>>
   >({});
+
+  // 当前处于编辑态（展示 textarea + 取消/同步）的图片 key
+  const [editingKey, setEditingKey] = useState<string | null>(null);
+  // 编辑中的提示词草稿
+  const [editingPrompt, setEditingPrompt] = useState<string>("");
 
   const saveOpenImage = (src: string | null, id: number | null) => {
     setOpenImageId(id);
@@ -61,6 +64,9 @@ export default function ImageList({ images }: ScriptImageProps) {
         },
       }));
 
+      // 同步成功后退出编辑态
+      setEditingKey((prev) => (prev === key ? null : prev));
+
       return;
     }
 
@@ -75,6 +81,8 @@ export default function ImageList({ images }: ScriptImageProps) {
 
     // FAILED结束
     if (response.status === "FAILED") {
+      // 失败也退出编辑态，让用户能看到状态
+      setEditingKey((prev) => (prev === key ? null : prev));
       return;
     }
   };
@@ -106,6 +114,46 @@ export default function ImageList({ images }: ScriptImageProps) {
     getRegenImageStatus(category, id);
   };
 
+  /**
+   * 点击"编辑"：进入编辑态，回填当前提示词
+   */
+  const startEdit = (key: string, currentPrompt: string) => {
+    setEditingKey(key);
+    setEditingPrompt(currentPrompt);
+  };
+
+  /**
+   * 点击"取消"：退出编辑态，不修改
+   */
+  const cancelEdit = () => {
+    setEditingKey(null);
+    setEditingPrompt("");
+  };
+
+  /**
+   * 点击"同步"：提交修改后的提示词并重新生成
+   */
+  const syncEdit = async (
+    category: string,
+    id: number,
+    image: CloneImage,
+  ) => {
+    const key = category + id;
+    if (!editingPrompt.trim()) {
+      return;
+    }
+    // 退出编辑态，进入生成中
+    setEditingKey(null);
+    setEditingPrompt("");
+    await regenerateImage(
+      category,
+      id,
+      imageParams[key]?.width ?? image.width,
+      imageParams[key]?.height ?? image.height,
+      editingPrompt.trim(),
+      imageParams[key]?.seed ?? image.seed,
+    );
+  };
 
   useEffect(() => {
     if (!images || images.length === 0) return;
@@ -113,7 +161,6 @@ export default function ImageList({ images }: ScriptImageProps) {
 
     images.forEach((image) => {
       const key = image.category + image.id;
-      console.log(`set ${key} status ${image.status}`)
       statusMap[key] = image.status;
     });
     setRegenStatus(statusMap);
@@ -124,16 +171,18 @@ export default function ImageList({ images }: ScriptImageProps) {
     return <div className="text-gray-500 text-center py-8">暂无图片</div>;
   }
 
-
   return (
     <div className="space-y-4">
       {images.map((image) => {
         const key = image.category + image.id;
 
         const status = regenStatus[key];
-        console.log(`${key} status: ${status}`)
 
         const params = imageParams[key] ?? {};
+        const currentPrompt = params.prompt ?? image.prompt;
+
+        const isEditing = editingKey === key;
+        const isProcessing = status === "PROCESSING" || status === "PENDING";
 
         return (
           <div key={key} className="bg-white rounded-xl shadow border p-5">
@@ -148,50 +197,116 @@ export default function ImageList({ images }: ScriptImageProps) {
                 </span>
               </div>
 
-              <div>
-                <div className="text-gray-500 text-sm">{image.desc}</div>
+              <div className="flex items-center gap-2">
+                <div className="text-gray-500 text-sm mr-2">{image.desc}</div>
 
-                <button
-                  disabled={status === "PROCESSING" || status === "PENDING"}
-                  className="
-                  px-4 rounded-xl 
-                  bg-blue-500 
-                  text-white 
-                  hover:bg-blue-600 
-                  transition
-                  disabled:bg-gray-400
-                  "
-                  onClick={() =>
-                    regenerateImage(
-                      image.category,
-                      image.id,
-                      params.width ?? image.width,
-                      params.height ?? image.height,
-                      params.prompt ?? image.prompt,
-                      params.seed ?? image.seed,
-                    )
-                  }
-                >
-                  {status === "PROCESSING" || status === "PENDING"
-                    ? "生成中..."
-                    : "重新生成"}
-                </button>
+                {!isEditing && (
+                  <button
+                    disabled={isProcessing}
+                    className="
+                    px-4 py-1.5 rounded-xl
+                    bg-blue-500
+                    text-white
+                    hover:bg-blue-600
+                    transition
+                    disabled:bg-gray-400
+                    "
+                    onClick={() => startEdit(key, currentPrompt)}
+                  >
+                    编辑
+                  </button>
+                )}
+
+                {!isEditing && (
+                  <button
+                    disabled={isProcessing}
+                    className="
+                    px-4 py-1.5 rounded-xl
+                    bg-green-500
+                    text-white
+                    hover:bg-green-600
+                    transition
+                    disabled:bg-gray-400
+                    "
+                    onClick={() =>
+                      regenerateImage(
+                        image.category,
+                        image.id,
+                        params.width ?? image.width,
+                        params.height ?? image.height,
+                        currentPrompt,
+                        params.seed ?? image.seed,
+                      )
+                    }
+                  >
+                    {isProcessing ? "生成中..." : "重新生成"}
+                  </button>
+                )}
+
+                {isEditing && (
+                  <>
+                    <button
+                      className="
+                      px-4 py-1.5 rounded-xl
+                      bg-gray-400
+                      text-white
+                      hover:bg-gray-500
+                      transition
+                      "
+                      onClick={cancelEdit}
+                    >
+                      取消
+                    </button>
+                    <button
+                      className="
+                      px-4 py-1.5 rounded-xl
+                      bg-blue-500
+                      text-white
+                      hover:bg-blue-600
+                      transition
+                      "
+                      onClick={() =>
+                        syncEdit(image.category, image.id, image)
+                      }
+                    >
+                      同步
+                    </button>
+                  </>
+                )}
               </div>
             </div>
 
             <div className="flex justify-between items-center">
               <div className="basis-1/2">
-                <p className="text-gray-700 mb-1">
-                  {params.prompt ?? image.prompt}
-                </p>
+                {isEditing ? (
+                  <textarea
+                    value={editingPrompt}
+                    onChange={(e) => setEditingPrompt(e.target.value)}
+                    rows={8}
+                    className="
+                    w-full
+                    px-3
+                    py-2
+                    border
+                    border-gray-300
+                    rounded-lg
+                    focus:outline-none
+                    focus:border-blue-500
+                    text-gray-800
+                    text-sm
+                    "
+                  />
+                ) : (
+                  <p className="text-gray-700 mb-1">{currentPrompt}</p>
+                )}
               </div>
 
               <div
                 className="
-                flex items-center 
-                basis-1/2 
-                justify-start 
-                overflow-hidden 
+                flex items-center
+                basis-1/2
+                justify-start
+                overflow-hidden
                 cursor-pointer
                 "
                 style={{
@@ -203,8 +318,8 @@ export default function ImageList({ images }: ScriptImageProps) {
                 <img
                   src={`${getImageUrl(image.category, image.id)}?v=${params.version ?? image.version}`}
                   className="
-                  max-w-full 
-                  max-h-full 
+                  max-w-full
+                  max-h-full
                   object-contain
                   "
                 />

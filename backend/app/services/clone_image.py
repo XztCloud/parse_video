@@ -215,7 +215,7 @@ async def generate_image(prompt: str, save_dir: str|Path, prefix:str,  img_type:
         image_size=ImageSize.SIZE_1024x1024,
         seed=seed
     )
-    if settings.USER_COMFY_IMAGE:
+    if settings.USE_COMFY_IMAGE:
         match img_type:
             case 'role':
                 # 旧版 flux2-klien

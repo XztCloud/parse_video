@@ -44,6 +44,10 @@ build/
 项目交接文档.md
 项目流程文档.md
 问题记录.md
+参考skill/
+
+# ComfyUI 运行时生成的 workflow（每轮覆盖，勿提交）
+*_runtime.json
 
 # 抖音 cookies（含登录凭据，切勿提交）
 *cookies.txt

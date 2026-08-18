@@ -1,0 +1,85 @@
+{
+  "script_id": 55,
+  "groups": [
+    {
+      "group_index": 1,
+      "segment_ids": [
+        144,
+        145,
+        146,
+        147,
+        148
+      ],
+      "start_time": 0.0,
+      "end_time": 12.4,
+      "duration": 12.4,
+      "prompt": "subject_definitions:\n- <Picture 1> 为开场展示国风男的角色参考图。<Subject 1> 是 <Picture 1> 中的人物，保持其面部特征与服饰。\n- <Picture 2> 为开场展示国风女的角色参考图。<Subject 2> 是 <Picture 2> 中的人物，保持其面部特征与服饰。\n- <Picture 3> 为持面年长使臣的角色参考图。<Subject 3> 是 <Picture 3> 中的人物，保持其面部特征与服饰。\n- <Picture 4> 为古风秦王的角色参考图。<Subject 4> 是 <Picture 4> 中的人物，保持其面部特征与服饰。\n- <Picture 5> 为秦国质问王侯的角色参考图。<Subject 5> 是 <Picture 5> 中的人物，保持其面部特征与服饰。\n\nsummary:\n[reference generation] A comedic Chinese-style advertisement skit in which five referenced character portraits are preserved and re-enact a Qin-dynasty court confrontation over a box of instant noodles, from a misty mountain opening to a classical palace hall.\n\nretention_analysis:\n- <Subject 1> / <Picture 1>：fully_preserved。仅在第 1 镜出现，面部特征、国风服饰与手持方便面的展示动作均按参考图保留。\n- <Subject 2> / <Picture 2>：fully_preserved。仅在第 1 镜出现，面部特征、国风服饰与活泼微笑状态均按参考图保留。\n- <Subject 3> / <Picture 3>：fully_preserved。在第 2、4、5 镜出现，使臣的年龄感、古装造型与愤怒/放松/满意的情绪变化均保留参考图身份。\n- <Subject 4> / <Picture 4>：fully_preserved。在第 2、3、4、5 镜出现，秦王的王冠服饰、面部特征与王者气场始终保留参考图形象。\n- <Subject 5> / <Picture 5>：fully_preserved。在第 2、4、5 镜出现，质问王侯的服饰、皱眉急躁神态均按参考图保留。\n\ndetailed_description:\n[Shot 1]（00:00 起，00:02.000 止）\n- 构图：中景推镜，双人对称构图。背景为青灰色调的云雾奇峰远山。\n- 主体：<Subject 1> 位于画面左侧，<Subject 2> 位于画面右侧。\n- 动作：<Subject 1> 手持一盒统一方便面，面向镜头自信微笑；<Subject 2> 手指方便面，活泼微笑配合展示。\n- 镜头运动：中景缓慢推近，从两人半身逐渐推向产品与面部。\n- 声音：山风与云雾流动的远景环境声，无对白。\n- 参考内容出现位置：<Subject 1> 与 <Subject 2> 以参考图形象完整出现，方便面盒位于画面中央作为核心道具。\n\n[Shot 2] At 00:02.000\n- 构图：中式古典秦殿内，中景推镜。画面中央偏左为 <Subject 3>，右侧王座前为 <Subject 4>，左侧前方为 <Subject 5>。\n- 主体：庄重宏大的秦殿，殿柱与王座构成纵深空间。\n- 动作：<Subject 3> 双手紧握一盒统一方便面，作势要摔，表情愤怒决绝；<Subject 4> 惊愕起身，伸手阻止；<Subject 5> 皱眉上前，欲质问。\n- 镜头运动：中景推镜，从殿内关系镜头向使臣与秦王方向推进。\n- 声音：朝堂回响、衣袍摩擦、急促脚步声；<d>[Chinese] (S1, 厚重沉稳/古风语调) 珍宝若被强夺，不如当场摔碎。</d>\n- 参考内容出现位置：<Subject 3>、<Subject 4>、<Subject 5> 均以参考图形象出现，方便面盒在 <Subject 3> 手中。\n\n[Shot 3] At 00:05.900\n- 构图：人物特写，画面中央为 <Subject 4> 的面部，背景是 <Subject 3> 与 <Subject 5> 的模糊身影。\n- 主体：<Subject 4> 的急切面部表情。\n- 动作：<Subject 4> 眼神急切，嘴唇快速开合，同时伸手向前阻止。\n- 镜头运动：特写镜头轻微推近，强化紧张感。\n- 声音：环境声压低，突出人声；<d>[Chinese] (S2, 威严惊愕/王者气场) 不要摔，我要统一方便面！</d>\n- 参考内容出现位置：<Subject 4> 以参考图形象完整保留，处于画面中央；背景中 <Subject 3> 与 <Subject 5> 以虚化方式延续。\n\n[Shot 4] At 00:08.400\n- 构图：中景，画面中央为 <Subject 5>，右侧为 <Subject 4>，左侧为 <Subject 3>。\n- 主体：秦殿内三人对峙关系。\n- 动作：<Subject 5> 双手摊开，表情急躁，面向秦王方向质问；<Subject 4> 手持方便面，专注满足，不理会质问；<Subject 3> 放下手，露出放松微笑。\n- 镜头运动：中景固定机位，轻微横移保持三人关系。\n- 声音：朝堂低语、衣料摩擦；<d>[Chinese] (S3, 粗犷急躁/朝堂质问) 那之前说好的15个城池。</d>\n- 参考内容出现位置：<Subject 5> 居中，<Subject 4> 在右，<Subject 3> 在左，均保持参考图形象。\n\n[Shot 5] At 00:10.400\n- 构图：中景推镜，画面中央王座上为 <Subject 4>，左侧为 <Subject 5>，右侧为 <Subject 3>。\n- 主体：秦王坐在王座上，面前站着质问王侯与持面使臣。\n- 动作：<Subject 4> 大手一挥，表情果断，开口说话；<Subject 5> 愣住，后退一步；<Subject 3> 手持方便面，露出满意微笑。\n- 镜头运动：中景推镜，向王座上的秦王缓慢推进。\n- 声音：王座衣袍声、脚步后退声；<d>[Chinese] (S2, 急躁威严/毫不犹豫) 给给给，现在就给。</d>\n- 参考内容出现位置：<Subject 4> 居中，<Subject 5> 居左，<Subject 3> 居右，均保持参考图形象。\n\noverall_soundscape:\n整体以空旷山风开场，随后转入秦殿室内混响空间。包含衣袍摩擦声、急促脚步声、王座响动、方便面盒被举起与放下的轻微纸盒声，以及朝堂中的低语与回音感。所有对白均带有古风大殿的轻微回声。\n\nnon_diegetic_music:\n古风管弦乐：开场悠远空灵，进入秦殿后转为紧张急促的鼓点与弦乐；当秦王喊出“不要摔，我要统一方便面！”时加入诙谐顿挫的音效，结尾以干脆利落的收束音结束。仅观众可闻，不影响画面内角色。",
+      "image_map": [
+        {
+          "Picture 1": "/home/xztcloud/.smarttr/workspace/parse_video/backend/uploads/clone_55/开场展示国风男_0.png"
+        },
+        {
+          "Picture 2": "/home/xztcloud/.smarttr/workspace/parse_video/backend/uploads/clone_55/开场展示国风女_0.png"
+        },
+        {
+          "Picture 3": "/home/xztcloud/.smarttr/workspace/parse_video/backend/uploads/clone_55/持面年长使臣_0.png"
+        },
+        {
+          "Picture 4": "/home/xztcloud/.smarttr/workspace/parse_video/backend/uploads/clone_55/古风秦王_0.png"
+        },
+        {
+          "Picture 5": "/home/xztcloud/.smarttr/workspace/parse_video/backend/uploads/clone_55/秦国质问王侯_0.png"
+        }
+      ]
+    },
+    {
+      "group_index": 2,
+      "segment_ids": [
+        149,
+        150,
+        151,
+        152
+      ],
+      "start_time": 12.4,
+      "end_time": 25.8,
+      "duration": 13.4,
+      "prompt": "1. subject_definitions:\n<Picture 1> 为古风秦王角色参考；<Subject 1> 是 <Picture 1> 中的人物，保持其面部特征与服饰。\n<Picture 2> 为黑衣劲装谋将角色参考；<Subject 2> 是 <Picture 2> 中的人物，保持其面部特征与服饰。\n\n2. summary:\n[reference generation] A 13.4-second Chinese ancient palace sequence in which a Qin emperor and a black-clad strategist enjoy unified instant noodles, preserving the two reference characters' facial features and costumes.\n\n3. retention_analysis:\n- <Subject 1>/<Picture 1>：fully_preserved — 仅在 Shot 1 中出现，保留古风秦王的 45 岁面部特征、帝王服饰与满足神态。\n- <Subject 2>/<Picture 2>：fully_preserved — 在 Shot 2 至 Shot 4 中连续出现，保留黑衣劲装谋将的 35 岁面部特征、黑衣劲装与身份；表情由紧绷转为满足，但外观与服装完全保留。\n\n4. detailed_description:\n[Shot 1]（组内 00:00.000 开始，00:00.000–00:03.600）\n构图：人物特写，主体居中，面部与碗占据画面主体，背景虚化。\n主体：<Subject 1>（<Picture 1>）古风秦王，45 岁，双手捧着一碗泡好的统一方便面，大口吃面，嘴角沾着汤汁，表情满足享受。\n环境：中式古典秦殿内，背景为模糊的宫殿装饰。\n动作：大口吃面，说话。\n镜头运动：固定特写，轻微缓慢推近。\n声音：满足的吸面声、咀嚼声；<d>[Chinese] (S1) 一口统一，整块更好吃。</d>（满足赞叹/厚重饱满）\n\n[Shot 2] At 00:03.600\n构图：中景推镜，主体居中，桌面城池地图占据前景下方，烛台与竹简分置两侧。\n主体：<Subject 2>（<Picture 2>）黑衣劲装谋将，35 岁，俯身紧盯桌面上的城池地图，眉头紧锁，手指点在地图上，神情紧绷专注。\n环境：秦殿谋议区，烛台、竹简、城池地图。\n动作：俯身看地图，手指点图。\n镜头运动：中景推镜，缓缓向前推进，越过烛台与竹简，聚焦到谋将面部与手指触点。\n声音：无台词；烛火噼啪、竹简轻碰、地图纸张摩擦、衣物摩擦、低沉呼吸。\n\n[Shot 3] At 00:06.600\n构图：人物特写，主体居中，双手捧碗与面部占据画面，碗上清晰显示“统一”品牌字样。\n主体：<Subject 2>（<Picture 2>）黑衣劲装谋将，双手捧起一碗统一方便面，大口吃面，表情放松满足。\n环境：秦殿谋议区，背景虚化，烛台与竹简隐约可见。\n动作：吃面，说话。\n镜头运动：固定特写，焦点在碗与面部之间。\n声音：吸面声、咀嚼声；<d>[Chinese] (S2) 别争了，整块更好吃。</d>（低沉冷静/放松舒缓）\n\n[Shot 4] At 00:10.900\n构图：人物特写，主体居中，面部特写，碗在画面下方，碗中可见整块肉块。\n主体：<Subject 2>（<Picture 2>）黑衣劲装谋将，放下碗筷，闭眼回味，嘴角上扬，表情满足赞叹。\n环境：秦殿谋议区，背景虚化。\n动作：闭眼回味，说话。\n镜头运动：固定特写，焦点从面部移到碗中肉块，再回到面部。\n声音：碗筷轻放声；<d>[Chinese] (S2) 整块真肉果然好吃。</d>（惊艳赞叹/低沉浑厚）\n\n5. overall_soundscape:\n整体环境音为秦殿空旷回响、烛火噼啪、竹简轻碰、衣物摩擦、地图纸张摩擦；物理音效包括吸面、咀嚼、吞咽、碗筷轻放等，音色偏厚重、贴近，突出吃面的满足感。\n\n6. non_diegetic_music:\n古风低音鼓与弦乐铺底，节奏沉稳；在吃面满足瞬间加入轻微锣/镲点缀，增强赞叹感，音量不压台词。",
+      "image_map": [
+        {
+          "Picture 1": "/home/xztcloud/.smarttr/workspace/parse_video/backend/uploads/clone_55/古风秦王_0.png"
+        },
+        {
+          "Picture 2": "/home/xztcloud/.smarttr/workspace/parse_video/backend/uploads/clone_55/黑衣劲装谋将_0.png"
+        }
+      ]
+    },
+    {
+      "group_index": 3,
+      "segment_ids": [
+        153,
+        154,
+        155,
+        156,
+        157
+      ],
+      "start_time": 25.8,
+      "end_time": 39.3,
+      "duration": 13.5,
+      "prompt": "subject_definitions:\n<Subject 1> 是 <Picture 1> 中的人物，30岁拟人化肉块帝王，保持其面部特征与龙袍服饰。  \n<Subject 2> 是 <Picture 2> 中的人物，28岁山顶射箭武士，保持其面部特征与服饰。  \n<Subject 3> 是 <Picture 3> 中的人物，25岁开场展示国风男，保持其面部特征与服饰。  \n<Subject 4> 是 <Picture 4> 中的人物，23岁开场展示国风女，保持其面部特征与服饰。\n\nsummary:\n[reference generation] A humorous Chinese-style ad sequence featuring the meat-block emperor, the archer, and two hosts, all derived from reference images.\n\nretention_analysis:\n- <Subject 1>/<Picture 1>：fully_preserved。在 Shot 1 与 Shot 3 中保持同一面部特征、龙袍服饰与帝王气质，动作表情变化不影响身份一致性。\n- <Subject 2>/<Picture 2>：fully_preserved。在 Shot 2 与 Shot 4 中保持同一面部特征、武士服饰与坚定神态。\n- <Subject 3>/<Picture 3>：fully_preserved。在 Shot 5 中保持同一面部特征、国风服饰与自信微笑。\n- <Subject 4>/<Picture 4>：fully_preserved。在 Shot 5 中保持同一面部特征、国风服饰与甜美微笑。\n\ndetailed_description:\n[Shot 1]（组内 00:00.000 开始）  \n中景推镜。画面中央为参考 <Picture 1> 的 <Subject 1>，30岁拟人化肉块帝王，身穿龙袍端坐于中式古典秦殿王座，双手叉腰，仰头大笑，周围有金色光效闪烁。镜头从略远的中景缓慢推近，突出得意喜感。环境为秦殿内部，有柱梁、帷幔与金色装饰。声音：S1（拟人化肉块帝王）浑厚喜感、爽朗大笑——<d>[Chinese] 我就说嘛，哈哈哈哈哈哈。</d>；殿内笑声回响，金色光效伴随轻微空气波动声。\n\n[Shot 2] At 00:02.500  \n全景拉近。画面中央为参考 <Picture 2> 的 <Subject 2>，28岁山顶射箭武士，站在云雾缭绕的山顶平台，持弓搭箭，瞄准远处天空中的一块肉块，肌肉紧绷，背景云海翻涌。镜头从全景缓慢拉近，强调专注坚定。声音：S2（山顶射箭武士）刚劲有力、洪亮开阔——<d>[Chinese] 九块已落，余下这块，看我一箭射下！</d>；山风呼啸，弓弦紧绷声清晰可闻。\n\n[Shot 3] At 00:06.500  \n中景推镜。画面中央为参考 <Picture 1> 的 <Subject 1>，拟人化肉块帝王，仍穿龙袍，站在云雾缭绕的山顶，手持统一方便面，另一只手做停止手势，表情急切。镜头推近，突出喜感与急切感。声音：S1（拟人化肉块帝王）浑厚急切、自带喜感——<d>[Chinese] 停停，我要整块的。</d>；山顶风声与方便面包装摩擦声。\n\n[Shot 4] At 00:08.500  \n人物特写。画面中央为参考 <Picture 2> 的 <Subject 2>，山顶射箭武士，放下弓箭，面向镜头，表情坚定，背景为云雾。镜头轻微推近，强化人物语气。声音：S2（山顶射箭武士）刚劲有力、洪亮——<d>[Chinese] 整块真肉更好吃！</d>；山风与远处云海声。\n\n[Shot 5] At 00:10.500  \n全景展示。画面为云雾奇峰远山背景，左侧为参考 <Picture 3> 的 <Subject 3>，25岁开场展示国风男；右侧为参考 <Picture 4> 的 <Subject 4>，23岁开场展示国风女。两人并肩站立，手持统一方便面，面向镜头，面带微笑。镜头固定或缓慢拉开，展示完整全景。声音：S3（开场展示国风男）清朗有力、广告播音腔——<d>[Chinese] 一口统一方便面，整块更好吃！</d>；国风女无台词，保持甜美微笑；山风与远景环境声。\n\noverall_soundscape:\n整体环境音以中式古典宫殿的厚重回响、金色光效的轻微空气波动、山顶云海的风声与远处松涛、弓弦紧绷的物理音效、方便面包装的摩擦声为主。人物台词清晰，笑声与语气自带喜感，环境声随场景切换从殿内封闭感转为山顶开阔感。\n\nnon_diegetic_music:\n仅观众可闻的国风广告配乐：以轻快锣鼓、笛箫与弦乐为主，前段在秦殿笑声中带出幽默感，中段在山顶拉弓时转为紧凑鼓点，后段在国风男女亮相时收束为明亮、自信的广告旋律。",
+      "image_map": [
+        {
+          "Picture 1": "/home/xztcloud/.smarttr/workspace/parse_video/backend/uploads/clone_55/拟人化肉块帝王_0.png"
+        },
+        {
+          "Picture 2": "/home/xztcloud/.smarttr/workspace/parse_video/backend/uploads/clone_55/山顶射箭武士_0.png"
+        },
+        {
+          "Picture 3": "/home/xztcloud/.smarttr/workspace/parse_video/backend/uploads/clone_55/开场展示国风男_0.png"
+        },
+        {
+          "Picture 4": "/home/xztcloud/.smarttr/workspace/parse_video/backend/uploads/clone_55/开场展示国风女_0.png"
+        }
+      ]
+    }
+  ]
+}

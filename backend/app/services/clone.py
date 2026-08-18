@@ -7,7 +7,7 @@ from celery.utils.log import get_task_logger
 from app.services.clone_voice import CustomVoiceContext, clone_voice_graph
 from app.services.clone_image import clone_image_graph
 from app.services.clone_frame import generate_segment_frame_prompt
-from app.services.clone_segment_video import generate_segments_video
+from app.services.clone_segment_video import generate_segments_video, generate_segments_video_minimax_h3
 from app.services.clone_merge_video import merge_segment_videos
 
 logger = get_task_logger(__name__)
@@ -141,7 +141,10 @@ async def segment_frame_generation(state:CloneState):
 async def video_generation(state: CloneState):
     try:
         logger.info('begin run video_generation')
-        await generate_segments_video(state["clone_script_id"])
+        # 使用ltx2.3首尾帧生成视频
+        # await generate_segments_video(state["clone_script_id"]
+        # 使用minimax_h3 ref关联角色生成视频
+        await generate_segments_video_minimax_h3(state["clone_script_id"])
         return {
             'step': 7
         }

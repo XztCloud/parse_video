@@ -13,6 +13,7 @@ from app.config import settings
 from app.models.script import CloneScript, CloneScriptSegment, CloneSegmentImg, CloneSegmentVideo, CloneStatus, GenerateStatus
 from app.util import make_dir
 from app.services.gen_image import GenImage, GenVideoParams, ReferImageInfo, VideoSize
+from app.services.h3_prompt_optimizer import optimize_script_prompts
 
 logger = get_task_logger(__name__)
 
@@ -139,6 +140,107 @@ async def upload_asset(asset_list: list[ReferImageInfo]):
         else:
             raise Exception(f"上传失败: {response.text}")
     
+async def generate_segments_video_minimax_h3(clone_script_id: int, go_head: bool=False, max_groups: int | None = None):
+    """使用minimax_h3 关联角色信息生成视频
+
+    Args:
+        clone_script_id (int): 复刻脚本id
+        go_head (bool, optional): 是否跳过已生成分镜视频. Defaults to False.
+        max_groups (int | None, optional): 只生成前几个分镜组（分批生成用），None 全部.
+    """
+    db = process_loop.AsyncSessionLocal()
+    clone_script = None
+    try:
+        res = await db.execute(select(CloneScript).where(CloneScript.id == clone_script_id))
+        clone_script = res.scalar_one_or_none()
+        if not clone_script:
+            raise ValueError(f'not find clone_script: {clone_script_id}')
+        clone_script.clone_progress = BEGIN_PROGRESS
+        await db.commit()
+
+        # 1. 生成符合minimax_h3的提示词（默认每分镜一组）
+        segment_param_list = await optimize_script_prompts(clone_script_id, max_groups=max_groups)
+        total = len(segment_param_list)
+        if total == 0:
+            raise ValueError(f'clone_script {clone_script_id} 没有可生成视频的分镜')
+
+        for i, segment_param in enumerate(segment_param_list):
+            segment_ids = segment_param['segment_ids']
+            if not segment_ids:
+                continue
+            # go_head: 已有成功记录则跳过
+            if go_head:
+                res = await db.execute(
+                    select(CloneSegmentVideo)
+                    .where(CloneSegmentVideo.clone_script_sgement_id == segment_ids[0])
+                )
+                existed = res.scalar_one_or_none()
+                if existed and existed.status == GenerateStatus.SUCCESS:
+                    logger.info(f'go_head skip it. {existed.desc}')
+                    continue
+            # 重跑：先删旧记录，避免重复
+            await db.execute(
+                delete(CloneSegmentVideo)
+                .where(CloneSegmentVideo.clone_script_sgement_id == segment_ids[0])
+            )
+            logger.info(f'begin generate {i+1}/{total} video (segment_ids={segment_ids})...')
+
+            # 2. 上传所需图片
+            ref_pictures = []
+            for image in segment_param['image_map']:
+                for path in image.values():
+                    ref_pictures.append(ReferImageInfo(type='ref', path=path))
+            if not ref_pictures:
+                raise ValueError(f'segment_ids={segment_ids} 没有参考图片')
+            await upload_asset(ref_pictures)
+            logger.info(f'refer image is {ref_pictures}')
+
+            # 3. 生成视频
+            gen_video_params = GenVideoParams(
+                prompt=segment_param['prompt'],
+                video_size=VideoSize.SIZE_864x480,
+                duration=segment_param['duration'],
+                rate=24,
+                refer_images=ref_pictures,
+            )
+            save_dir = settings.UPLOAD_DIR + '/clone_' + str(clone_script_id) + '/segment_' + str(i)
+            make_dir(save_dir, re_create=False)
+            if settings.USE_COMFY_VIDEO:
+                # 使用本地comfy生成视频
+                video_path = await GenImage.i2v_local_minimax_h3(gen_video_params, save_dir)
+            else:
+                raise NotImplementedError('USE_COMFY_VIDEO=False（runninghub）暂未实现')
+
+            # 4. 保存数据（一组对应组内第一个分镜，video_merge 按 start_time 排序合并）
+            db.add(CloneSegmentVideo(
+                clone_script_sgement_id=segment_ids[0],
+                width=gen_video_params.video_size.width,
+                height=gen_video_params.video_size.height,
+                path=video_path,
+                prompt=segment_param['prompt'],
+                status=GenerateStatus.SUCCESS,
+                seed=gen_video_params.seed,
+                desc=f'分镜{i+1}',
+                version=0,
+            ))
+            clone_script.clone_progress = BEGIN_PROGRESS + int((COMPLETE_PROGRESS - BEGIN_PROGRESS) * (i + 1) / total)
+            await db.commit()
+            logger.info(f'segment {segment_ids} video saved: {video_path}')
+
+        clone_script.clone_progress = COMPLETE_PROGRESS
+        clone_script.clone_status = CloneStatus.SEGMENT_VIDEO_DONE
+        await db.commit()
+    except Exception as e:
+        logger.exception('generate_segments_video_minimax_h3 发生错误')
+        await db.rollback()
+        if clone_script:
+            clone_script.clone_error_message = '生成分镜视频时发生错误'
+            clone_script.clone_status = CloneStatus.FAILED
+            await db.commit()
+        raise
+    finally:
+        await db.close()
+        
 
 async def generate_segments_video(clone_script_id: int, go_head: bool=False):
     log_node_start()
@@ -192,12 +294,12 @@ async def generate_segments_video(clone_script_id: int, go_head: bool=False):
             refer_frames.append(ReferImageInfo(type='audio', path=output_path))
             # 3. 上传资产
             await upload_asset(refer_frames)
-            print(f'refer_frames: {refer_frames}')
+            logger.info(f'refer_frames: {refer_frames}')
             # 4. 生成视频
             rate = 24
             duration = segment.end_time - segment.start_time
             params = GenVideoParams(prompt=merge_prompt, video_size=video_size, duration=duration, rate=rate, refer_images=refer_frames)
-            video_path = await GenImage.ai2v_local_flux2_klien(gen_video_params=params, save_dir=save_dir)
+            video_path = await GenImage.ai2v_local_ltx23(gen_video_params=params, save_dir=save_dir)
             # 5. 保存数据
             clone_segment_video = CloneSegmentVideo(
                 clone_script_sgement_id=segment.id,
