@@ -64,12 +64,14 @@ async def preload_lines_voices(state: CloneVoiceState, config: RunnableConfig):
         clone_script = statment.scalar_one_or_none()
         if not clone_script or not clone_script.clone_parse_pointer:
             raise Exception('not find clone_script in generate_storyboard')
-        
-        await db.execute(delete(CloneVoice).where(CloneVoice.script_id == state['clone_script_id']))
-        
-        parse_pointer = json.loads(clone_script.clone_parse_pointer)
 
-        role_library = parse_pointer['role_library']
+        await db.execute(delete(CloneVoice).where(CloneVoice.script_id == state['clone_script_id']))
+
+        # 从 Focus 字段读角色信息
+        focus = clone_script.clone_parse_pointer
+        if isinstance(focus, str):
+            focus = json.loads(focus)
+        role_library = focus['role_library']
 
         # 1. 获取角色信息
         voice_param_dict = {}
@@ -84,8 +86,11 @@ async def preload_lines_voices(state: CloneVoiceState, config: RunnableConfig):
             )
             voice_param_dict[role_name] = item
 
-        # 2. 按照 role_name 和 场景 收集对应角色的台词
-        plot_script_list = parse_pointer['plot_script']
+        # 从 Plot 字段读剧情段落
+        plot = clone_script.clone_parse_script
+        if isinstance(plot, str):
+            plot = json.loads(plot)
+        plot_script_list = plot['plot_script']
 
         lines_infos = []
         plot_duration_list = []
@@ -273,9 +278,9 @@ async def reset_lines_duration(state: CloneVoiceState):
     try:
         statment = await db.execute(select(CloneScript).where(CloneScript.id == state['clone_script_id']))
         clone_script = statment.scalar_one_or_none()
-        if not clone_script or not clone_script.clone_parse_pointer:
+        if not clone_script or not clone_script.clone_parse_script:
             raise Exception('not find clone_script in generate_storyboard')
-        
+
         voice_seek_info = state['voice_seek_info']
         if not isinstance(voice_seek_info, VoiceSeekInfo):
             raise Exception('voice_seek_info not init')
@@ -284,17 +289,21 @@ async def reset_lines_duration(state: CloneVoiceState):
             for lines in plot_lines:
                 real_lines_duration.append(lines.duration)
 
-        parse_pointer = CloneAnalysis.model_validate_json(clone_script.clone_parse_pointer)
-        plot_script_list = parse_pointer.plot_script
-        
+        # 从 clone_parse_script 读取 plot_script
+        plot_data = clone_script.clone_parse_script
+        if isinstance(plot_data, str):
+            plot_data = json.loads(plot_data)
+        plot_script_list = plot_data.get('plot_script', [])
+
         cnt = 0
         for plot_script in plot_script_list:
-            for actor_lines in plot_script.actor_lines:
+            for actor_lines in plot_script['actor_lines']:
                 if cnt >= len(real_lines_duration):
                     raise Exception('lines number > voice number')
-                actor_lines.predict_duration = real_lines_duration[cnt]
+                actor_lines['predict_duration'] = real_lines_duration[cnt]
                 cnt += 1
-        clone_script.clone_parse_pointer = parse_pointer.model_dump_json()
+        plot_data['plot_script'] = plot_script_list
+        clone_script.clone_parse_script = plot_data
         await db.commit()
 
     except Exception as e:

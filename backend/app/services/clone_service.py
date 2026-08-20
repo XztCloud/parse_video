@@ -1,12 +1,13 @@
 """复刻业务逻辑层：负责 CloneScript 各阶段的状态流转与详情组装，与路由层解耦。
 
 阶段 step 映射（与 LangGraph clone.py 的 step 对应）：
-    1 = plot（剧本）   2 = voice（配音）   3 = segments（分镜）
+    1 = plot（剧本）   2 = segments（分镜）   3 = voice（配音）
     4 = images（生图）  5 = frames（参考帧） 6 = segment_videos（分镜视频）
     7 = video（合并成片）
 """
 from pathlib import Path
 from typing import Literal
+from datetime import datetime, timezone, timedelta
 
 from fastapi import HTTPException
 from sqlalchemy import select, update
@@ -23,17 +24,24 @@ from app.models.script import (
     CloneScriptSegment,
     CloneVideo,
     CloneStatus,
+    Script,
 )
+from app.models.video import Video
+from app.util import logger
+
+# 北京时间 UTC+8
+BJ_TZ = timezone(timedelta(hours=8))
 
 
 # step -> (进入状态, 进度, 前置允许状态列表)
+# 复刻剧本 = plot(1) + segments(2)；渲染 = voice(3) + images(4) + video(6) + merge(7)
 _CLONE_STEP_CONFIG = {
-    2: (CloneStatus.VOICE, 21, [CloneStatus.PLOT_DONE, CloneStatus.VOICE_DONE]),
-    3: (CloneStatus.SEGMENTS, 31, [CloneStatus.PLOT_DONE, CloneStatus.VOICE_DONE, CloneStatus.SEGMENTS_DONE]),
-    4: (CloneStatus.IMAGE, 31, [CloneStatus.SEGMENTS_DONE, CloneStatus.IMAGE_DONE]),
-    5: (CloneStatus.FRAME, 45, [CloneStatus.IMAGE_DONE, CloneStatus.FRAME_DONE]),
-    6: (CloneStatus.SEGMENT_VIDEO, 60, [CloneStatus.IMAGE_DONE, CloneStatus.FRAME_DONE]),
-    7: (CloneStatus.MERGE_VIDEO, 95, [CloneStatus.IMAGE_DONE, CloneStatus.FRAME_DONE, CloneStatus.SEGMENT_VIDEO_DONE]),
+    2: (CloneStatus.SEGMENTS, 31, [CloneStatus.PLOT_DONE, CloneStatus.SEGMENTS_DONE]),
+    3: (CloneStatus.VOICE, 21, [CloneStatus.PLOT_DONE, CloneStatus.SEGMENTS_DONE, CloneStatus.VOICE_DONE, CloneStatus.FAILED]),
+    4: (CloneStatus.IMAGE, 31, [CloneStatus.SEGMENTS_DONE, CloneStatus.VOICE_DONE, CloneStatus.IMAGE_DONE, CloneStatus.FAILED]),
+    5: (CloneStatus.FRAME, 45, [CloneStatus.IMAGE_DONE, CloneStatus.FRAME_DONE, CloneStatus.FAILED]),
+    6: (CloneStatus.SEGMENT_VIDEO, 60, [CloneStatus.VOICE_DONE, CloneStatus.IMAGE_DONE, CloneStatus.FRAME_DONE, CloneStatus.FAILED]),
+    7: (CloneStatus.MERGE_VIDEO, 95, [CloneStatus.IMAGE_DONE, CloneStatus.FRAME_DONE, CloneStatus.SEGMENT_VIDEO_DONE, CloneStatus.FAILED]),
 }
 
 
@@ -53,10 +61,12 @@ async def create_clone_script(
     script_id: int,
     clone_theme: str,
     clone_requirements: dict | None = None,
+    source_type: str = "CLONE",
 ) -> CloneScript:
     kwargs = {
         "script_id": script_id,
         "clone_theme": clone_theme,
+        "source_type": source_type,
         "clone_status": CloneStatus.PLOT.value,
         "clone_progress": 0,
     }
@@ -67,6 +77,25 @@ async def create_clone_script(
     await db.commit()
     await db.refresh(clone_script)
     return clone_script
+
+
+async def create_original_render(db: AsyncSession, video_id: int) -> CloneScript:
+    """从原片解析结果创建 ORIGINAL 渲染工作台（原片直转渲染）。
+
+    仅创建工作台记录（source_type=ORIGINAL，中性主题"原片直转"）；
+    后续由 clone_video_task 跑 plot+storyboard 生成 clone_parse_pointer 与
+    clone_script_segments，再进入 voice/image/video/merge 渲染。
+    """
+    result = await db.execute(select(Script).where(Script.video_id == video_id))
+    script = result.scalar_one_or_none()
+    if not script:
+        raise HTTPException(status_code=404, detail="原视频脚本不存在，请先完成视频解析")
+    return await create_clone_script(
+        db,
+        script_id=script.id,
+        clone_theme="原片直转",
+        source_type="ORIGINAL",
+    )
 
 
 async def reset_clone_plot(db: AsyncSession, clone_script_id: int) -> bool:
@@ -82,6 +111,7 @@ async def reset_clone_plot(db: AsyncSession, clone_script_id: int) -> bool:
             "clone_progress": 0,
             "clone_error_message": None,
             "clone_parse_pointer": None,
+            "clone_parse_script": None,
             "clone_parse_file_path": None,
         })
     )
@@ -101,6 +131,7 @@ async def advance_clone_step(
 
     new_status, new_progress, allowed_statuses = config
 
+    logger.info(f'new_status:{new_status}, new_progress:{new_progress}, allowed_statuses:{allowed_statuses}')
     result = await db.execute(
         update(CloneScript)
         .where(
@@ -141,6 +172,39 @@ async def list_clone_scripts(
 
 def clone_status_value(status) -> str:
     return status.value if status else CloneStatus.PENDING.value
+
+
+async def list_all_clone_scripts(
+    db: AsyncSession,
+    offset: int = 0,
+    limit: int = 50,
+) -> list[dict]:
+    """列出所有复刻剧本，附带原视频信息。"""
+    result = await db.execute(
+        select(CloneScript, Script, Video)
+        .join(Script, CloneScript.script_id == Script.id)
+        .join(Video, Script.video_id == Video.id)
+        .order_by(CloneScript.created_at.desc())
+        .offset(offset)
+        .limit(limit)
+    )
+    rows = result.all()
+    return [
+        {
+            "id": cs.id,
+            "script_id": cs.script_id,
+            "video_id": v.id,
+            "video_title": v.title,
+            "video_category": v.category,
+            "clone_theme": cs.clone_theme,
+            "clone_status": clone_status_value(cs.clone_status),
+            "clone_progress": cs.clone_progress or 0,
+            "error_message": cs.clone_error_message,
+            "source_type": cs.source_type,
+            "created_at": cs.created_at.isoformat() if cs.created_at else None,
+        }
+        for cs, s, v in rows
+    ]
 
 
 async def get_clone_script_detail(db: AsyncSession, clone_script_id: int) -> dict:
@@ -244,7 +308,10 @@ async def get_clone_script_detail(db: AsyncSession, clone_script_id: int) -> dic
 
     return {
         "id": clone_script_id,
+        "source_type": clone_script.source_type,
         "content": clone_script_content,
+        "clone_parse_pointer": clone_script.clone_parse_pointer,
+        "clone_parse_script": clone_script.clone_parse_script,
         "voices": [
             {
                 "id": voice.id, "role_name": voice.role_name,
@@ -296,6 +363,7 @@ async def get_clone_script_detail(db: AsyncSession, clone_script_id: int) -> dic
             for i, seg_v in enumerate(segment_videos)
         ],
         "video": video,
+        "created_at": clone_script.created_at.replace(tzinfo=timezone.utc).astimezone(BJ_TZ).isoformat() if clone_script.created_at else None,
     }
 
 

@@ -50,7 +50,7 @@ class ReClonePlotRequest(CloneRequestBase):
 
 
 class ClonePhaseRequest(CloneRequestBase):
-    """推进到指定复刻阶段。step: 2=配音 3=分镜 4=生图 5=参考帧 6=分镜视频 7=合并成片"""
+    """推进到指定复刻阶段。step: 2=分镜 3=配音 4=生图 5=参考帧 6=分镜视频 7=合并成片"""
 
     step: int = Field(..., ge=2, le=7, description="复刻阶段 2-7")
 
@@ -73,16 +73,22 @@ async def clone_plot(request: Request, request_data: ClonePlotRequest, db: Async
         filtered_dict = {k: v for k, v in full_data.items() if k in target_keys}
         clone_requirements = filtered_dict if filtered_dict else None
 
+        merge_theme = f'复刻主题：{request_data.clone_theme}   '
+        if request_data.product:
+            merge_theme += f'推广商品：{request_data.product}   '
+            if request_data.product_desc:
+                merge_theme += f'商品描述：{request_data.product_desc} '
+        
         clone_script = await clone_service.create_clone_script(
             db,
             script_id=script.id,
-            clone_theme=request_data.clone_theme,
+            clone_theme=merge_theme,
             clone_requirements=clone_requirements,
         )
         clone_video_task.delay(clone_script.id, 1, request_data.auto_run)
         return {
             "id": clone_script.id,
-            "theme": request_data.clone_theme,
+            "theme": merge_theme,
             "status": clone_script.clone_status,
             "progress": clone_script.clone_progress,
         }
@@ -132,6 +138,16 @@ async def get_clone_status(clone_script_id: int, db: AsyncSessionDep):
     except Exception as e:
         logger.error(f"获取状态失败: {str(e)}")
         raise HTTPException(status_code=400, detail=f"获取状态失败: {str(e)}")
+
+
+@router.get("/list_all")
+async def list_all_clone_scripts(db: AsyncSessionDep, offset: int = 0, limit: int = 50):
+    """列出所有复刻剧本，附带原视频信息。"""
+    try:
+        return await clone_service.list_all_clone_scripts(db, offset=offset, limit=limit)
+    except Exception as e:
+        logger.error(f"获取全部复刻脚本列表失败: {str(e)}")
+        raise HTTPException(status_code=400, detail=f"获取复刻脚本列表失败: {str(e)}")
 
 
 @router.get("/{script_id}/list_clone_scripts")
@@ -349,7 +365,7 @@ async def regenerate_image_status(
 async def clone_phase(request: ClonePhaseRequest, db: AsyncSessionDep):
     """推进复刻到指定阶段（合并原 voices/segments/images/frames/segment_videos/video 六个接口）。
 
-    step: 2=配音 3=分镜 4=生图 5=参考帧 6=分镜视频 7=合并成片
+    step: 2=分镜 3=配音 4=生图 5=参考帧 6=分镜视频 7=合并成片
     兼容前端：路径使用 `/clone/phase`，body 中带 cloneScriptId/autoRun/step。
     """
     try:

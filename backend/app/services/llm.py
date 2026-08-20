@@ -136,8 +136,8 @@ class CloneAnalysisFocus(BaseModel):
         description="全局画风母模板约束。"
     )
     core_shell_point: CoreSellingPoint = Field(
-        ...,
-        description="核心卖点与营销痛点模型，用于锁定剧本的商业逻辑"
+        default=None,
+        description="核心卖点与营销痛点模型，用于锁定剧本的商业逻辑；有些视频可能不存在推广"
     )
     
 class CloneAnalysisPlot(BaseModel):

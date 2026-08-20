@@ -70,12 +70,30 @@ async def generate_storyboard(state: CloneStoryboardState):
 
         clone_script.clone_progress = 32
         await db.commit()
-        
-        parse_pointer = CloneAnalysis.model_validate_json(clone_script.clone_parse_pointer)
-        
-        role_library=[role.model_dump() for role in parse_pointer.role_library]
-        scene_library=[scene.model_dump() for scene in parse_pointer.scene_library]
-        
+
+        # 从 Focus 字段读角色/场景信息，从 Plot 字段读剧情段落
+        focus_ptr = clone_script.clone_parse_pointer
+        if isinstance(focus_ptr, str):
+            focus_ptr = json.loads(focus_ptr)
+        plot_ptr = clone_script.clone_parse_script
+        if isinstance(plot_ptr, str):
+            plot_ptr = json.loads(plot_ptr)
+
+        role_library = [dict(r) if not isinstance(r, dict) else r for r in focus_ptr.get('role_library', [])]
+        scene_library = [dict(s) if not isinstance(s, dict) else s for s in focus_ptr.get('scene_library', [])]
+
+        # 重试时使用 check_storyboard_result 补入的角色（如旁白）
+        state_roles = state.get('plot_role_library')
+        if state_roles and len(state_roles) > len(role_library):
+            logger.info(f'retry: 使用已补入的角色列表 ({len(state_roles)} > {len(role_library)})')
+            role_library = state_roles
+
+        # 构造 CloneAnalysis 供 LLM prompt 使用
+        from app.services.llm import CloneAnalysisFocus, CloneAnalysisPlot, CloneAnalysis
+        focus_model = CloneAnalysisFocus.model_validate(focus_ptr)
+        plot_model = CloneAnalysisPlot.model_validate(plot_ptr)
+        parse_pointer = CloneAnalysis(**focus_model.model_dump(), **plot_model.model_dump())
+
         storyboard_system = STORYBOARD_SYSTEM_PROMPT.format(
             role_library=role_library,
             scene_library=scene_library,
@@ -149,6 +167,8 @@ async def check_storyboard_result(state: CloneStoryboardState):
 
         extra_scene_messages = ''
         extra_role_messages = ''
+        missing_roles = set()
+
         for segments in storyboard_script.segments:
             if segments.scene_name not in plot_scene_name:
                 logger.info(f'find scene_name:{segments.scene_name} not in plot_scene_name')
@@ -156,25 +176,64 @@ async def check_storyboard_result(state: CloneStoryboardState):
             for lines in segments.audio_timeline:
                 if lines.role_name not in plot_role_name:
                     logger.info(f'audio_timeline role_name:{lines.role_name} not in plot_role_name')
-                    extra_role_messages += f'发现剧本中存在人物名({lines.role_name}) 不在视频脚本（来自创意总监的宏观设想）中 \n'
+                    missing_roles.add(lines.role_name)
             for role_view in segments.role_view_info:
                 if role_view.role_name not in plot_role_name:
-                    logger.info(f'role_view_info role_name:{lines.role_name} not in plot_role_name')
-                    extra_role_messages += f'发现剧本中存在人物名({lines.role_name}) 不在视频脚本（来自创意总监的宏观设想）中 \n'
+                    logger.info(f'role_view_info role_name:{role_view.role_name} not in plot_role_name')
+                    missing_roles.add(role_view.role_name)
 
-        
+        # 旁白类角色自动补入角色列表（旁白不占画面，性别年龄无实际影响）
+        updated_library = list(state['plot_role_library'])
+        nanobai_added = False
+        for role_name in missing_roles:
+            if '旁白' in role_name:
+                logger.info(f'自动补入旁白角色: {role_name}')
+                updated_library.append({
+                    'role_name': role_name,
+                    'gender': 'male',
+                    'age': 30,
+                    'voice_style_guide': '播音腔，吐字清晰',
+                    'effect': '旁白/画外音，用于产品宣传语或转场解说',
+                })
+                plot_role_name.append(role_name)
+                nanobai_added = True
+            else:
+                extra_role_messages += f'发现剧本中存在人物名({role_name}) 不在视频脚本（来自创意总监的宏观设想）中 \n'
+
+        # 将补入的旁白角色持久化到 clone_parse_pointer，供后续 voice/image 阶段使用
+        if nanobai_added:
+            db = process_loop.AsyncSessionLocal()
+            try:
+                stmt = await db.execute(select(CloneScript).where(CloneScript.id == state['clone_script_id']))
+                cs = stmt.scalar_one_or_none()
+                if cs and cs.clone_parse_pointer:
+                    # JSON 列：可能是 dict（已解码）或 str（旧数据双编码），统一处理
+                    ptr = cs.clone_parse_pointer
+                    if isinstance(ptr, str):
+                        ptr = json.loads(ptr)
+                    ptr['role_library'] = updated_library
+                    # JSON 列传 dict，SQLAlchemy 自动序列化，不要传字符串
+                    cs.clone_parse_pointer = ptr
+                    await db.commit()
+                    logger.info(f'已将补入的旁白角色持久化到 clone_parse_pointer')
+            except Exception as e:
+                logger.warning(f'持久化旁白角色失败: {e}')
+            finally:
+                await db.close()
+
         retry_messages= ''
         if extra_scene_messages:
             retry_messages = '# 请重新对齐场景\n\n' + extra_scene_messages
-        
+
         if extra_role_messages:
             retry_messages = '# 请重新对齐人物\n\n' + extra_role_messages
-        
+
         if retry_messages:
             logger.info(f'extra_role_messages: {extra_role_messages}')
         retry_cnt = state.get('retry_cnt', 0)
-        
+
         return {
+            'plot_role_library': updated_library,
             'retry_messages': retry_messages,
             'retry_cnt': retry_cnt + 1
             }

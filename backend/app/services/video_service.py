@@ -1,8 +1,12 @@
 """视频业务逻辑层：负责视频记录创建、查询，与路由层解耦。"""
+from datetime import datetime, timezone, timedelta
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.video import Video, VideoStatus, VideoSource
+
+# 北京时间 UTC+8
+BJ_TZ = timezone(timedelta(hours=8))
 
 
 async def create_video_record(
@@ -36,6 +40,10 @@ def video_to_dict(video: Video) -> dict:
         "status": video.status.value,
         "progress": video.progress,
         "error_message": video.error_message,
+        "duration": video.duration,
+        "category": video.category,
+        "type_summary": video.type_summary,
+        "created_at": video.created_at.replace(tzinfo=timezone.utc).astimezone(BJ_TZ).isoformat() if video.created_at else None,
     }
 
 

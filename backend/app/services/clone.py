@@ -30,9 +30,9 @@ async def should_select_next_step(state: CloneState):
     if step == 1:
         return 'plot_generation'
     if step == 2:
-        return 'voice_generation'
-    if step == 3:
         return 'storyboard_generation'
+    if step == 3:
+        return 'voice_generation'
     if step == 4:
         return 'image_base_generation'
     if step == 5:
@@ -76,7 +76,7 @@ async def voice_generation(state: CloneState):
         }
         await clone_voice_graph.ainvoke(initial_input, config=config)
         return {
-            'step': 3
+            'step': 4
         }
     except Exception as e:
         logger.info(f'catch error in storyboard_generation. {str(e)}')
@@ -98,7 +98,7 @@ async def storyboard_generation(state: CloneState):
         }
         await clone_storyboard_graph.ainvoke(initial_input)
         return {
-            'step': 4
+            'step': 3
         }
     except Exception as e:
         logger.info(f'catch error in storyboard_generation. {str(e)}')

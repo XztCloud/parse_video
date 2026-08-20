@@ -32,6 +32,8 @@ export interface VideoStatusResponse {
   status: string;
   progress: number;
   error_message?: string;
+  duration?: number | null;
+  category?: string | null;
 }
 
 export interface VideoListItem {
@@ -40,6 +42,10 @@ export interface VideoListItem {
   status: string;
   progress: number;
   error_message?: string;
+  duration?: number | null;
+  category?: string | null;
+  type_summary?: string | null;
+  created_at?: string | null;
 }
 
 export interface DialogueItem {
@@ -53,6 +59,7 @@ export interface ScriptSegment {
   end_time: number;
   shot_description: string;
   dialogue: DialogueItem[];
+  shot_features?: string[];
   segment_type: string;
 }
 
@@ -82,6 +89,13 @@ export interface ScriptResponse {
   id: number;
   video_id: number;
   content: any;
+  parse_pointer?: {
+    role_library?: { role_name: string; gender: string; age: number; voice_style_guide?: string; effect: string }[];
+    scene_library?: { scene_name: string; environment_description: string; color_grading: string }[];
+    global_style?: { global_style_suffix: string };
+    core_shell_point?: { user_pain_point: string; product_usp: string[]; hook_trigger: string; keywords_to_include: string[] } | null;
+  };
+  parse_script?: any;
   segments: ScriptSegment[];
 }
 
@@ -91,6 +105,20 @@ export interface CloneListItem {
   clone_status: string;
   clone_progress: number;
   error_message?: string;
+}
+
+export interface CloneAllItem {
+  id: number;
+  script_id: number;
+  video_id: number;
+  video_title: string;
+  video_category: string | null;
+  clone_theme: string;
+  clone_status: string;
+  clone_progress: number;
+  error_message?: string;
+  source_type: string;
+  created_at: string | null;
 }
 
 export interface ClonePlotRequest {
@@ -112,6 +140,14 @@ export interface CloneStatusResponse {
 export interface ClonePlotResponse {
   id: number;
   theme: string;
+  status: string;
+  progress: number;
+}
+
+export interface RenderFromScriptResponse {
+  id: number;
+  theme: string;
+  source_type: string;
   status: string;
   progress: number;
 }
@@ -144,7 +180,11 @@ export interface CloneVido {
 
 export interface ClonseScriptResponse {
   id: number;
+  source_type: string;
   content: string;
+  clone_parse_pointer?: any;
+  clone_parse_script?: any;
+  created_at?: string;
   voices: CloneVoice[];
   segments: ScriptSegment[];
   images: CloneImage[];
@@ -237,6 +277,11 @@ export const listCloneScripts = async (scriptId: number): Promise<CloneListItem[
   return response.data;
 };
 
+export const listAllCloneScripts = async (offset: number = 0, limit: number = 50): Promise<CloneAllItem[]> => {
+  const response = await api.get<CloneAllItem[]>(`${API_PREFIX}/clone/list_all`, { params: { offset, limit } });
+  return response.data;
+};
+
 export const exportScript = async (videoId: number): Promise<Blob> => {
   const response = await api.get(`${API_PREFIX}/scripts/${videoId}/export`, { responseType: "blob" });
   return response.data;
@@ -270,18 +315,18 @@ export const exportClonePlot = async (videoId: number): Promise<Blob> => {
 /**
  * 推进复刻到指定阶段。
  * 后端已合并原 /clone/voices、/segments、/images、/frames、/segment_videos、/video 六个接口为 /clone/phase。
- * step: 2=配音 3=分镜 4=生图 5=参考帧 6=分镜视频 7=合并成片
+ * step: 2=分镜 3=配音 4=生图 5=参考帧 6=分镜视频 7=合并成片
  */
-const clonePhase = async (cloneScriptId: number, step: number, autoRun: boolean = false): Promise<CloneSegmentsResponse> => {
+export const clonePhase = async (cloneScriptId: number, step: number, autoRun: boolean = false): Promise<CloneSegmentsResponse> => {
   const response = await api.post<CloneSegmentsResponse>(`${API_PREFIX}/clone/phase`, {cloneScriptId, autoRun, step});
   return response.data;
 }
 
-export const cloneVoices = async (cloneScriptId: number, autoRun: boolean=false): Promise <CloneSegmentsResponse> => {
+export const cloneSegments = async (cloneScriptId: number, autoRun: boolean=false): Promise <CloneSegmentsResponse> => {
   return clonePhase(cloneScriptId, 2, autoRun);
 }
 
-export const cloneSegments = async (cloneScriptId: number, autoRun: boolean=false): Promise <CloneSegmentsResponse> => {
+export const cloneVoices = async (cloneScriptId: number, autoRun: boolean=false): Promise <CloneSegmentsResponse> => {
   return clonePhase(cloneScriptId, 3, autoRun);
 }
 
@@ -300,6 +345,12 @@ export const cloneSegmentVideo = async (cloneScriptId: number, autoRun: boolean=
 export const cloneMergeVideo = async (cloneScriptId: number, autoRun: boolean=false): Promise <CloneSegmentsResponse> => {
   return clonePhase(cloneScriptId, 7, autoRun);
 }
+
+/** 输出视频模块：以原片解析出的剧本+分镜为输入，一键创建 ORIGINAL 渲染工作台并自动跑全流程 */
+export const renderFromScript = async (videoId: number): Promise<RenderFromScriptResponse> => {
+  const response = await api.post<RenderFromScriptResponse>(`${API_PREFIX}/render/from-script`, { videoId });
+  return response.data;
+};
 
 export const exportCloneVoice = async (cloneVoiceId: number): Promise<Blob> => {
   const response = await api.get(`${API_PREFIX}/clone/voice/${cloneVoiceId}`, { responseType: "blob" });

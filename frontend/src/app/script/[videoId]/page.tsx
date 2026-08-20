@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
-import { getScript, exportScript, ScriptResponse } from "@/lib/api";
+import { getScript, exportScript, renderFromScript, ScriptResponse } from "@/lib/api";
 import ScriptTimeline from "@/components/ScriptTimeline";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -44,6 +44,19 @@ export default function ScriptDetailPage() {
     };
     fetchScript();
   }, [videoId]);
+
+  const handleCloneScript = () => {
+    router.push(`/clone/${videoId}`);
+  };
+
+  const handleRenderOriginal = async () => {
+    try {
+      const res = await renderFromScript(videoId);
+      router.push(`/cloneDetail/${res.id}`);
+    } catch (err: any) {
+      setError(err.response?.data?.detail || "原片渲染失败");
+    }
+  };
 
   const handleExport = async () => {
     try {
@@ -171,6 +184,18 @@ export default function ScriptDetailPage() {
 
           {/* 右侧：动作按钮区 */}
           <div className="flex items-center gap-4">
+            <button
+              onClick={handleCloneScript}
+              className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
+            >
+              复刻剧本
+            </button>
+            <button
+              onClick={handleRenderOriginal}
+              className="px-4 py-2 bg-emerald-500 text-white rounded-lg hover:bg-emerald-600 transition-colors"
+            >
+              渲染原片
+            </button>
             <LogoutButton />
           </div>
         </div>
