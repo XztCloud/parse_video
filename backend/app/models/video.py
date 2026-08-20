@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Integer, Float, DateTime, Enum
+from sqlalchemy import Column, String, Integer, Float, DateTime, Enum, Text
 from sqlalchemy.orm import relationship
 from ..database import Base
 import enum
@@ -22,6 +22,8 @@ class Video(Base):
     source_url = Column(String(1024), nullable=True)
     file_path = Column(String(512), nullable=False)
     duration = Column(Float, nullable=True)
+    category = Column(String(64), nullable=True, comment="视频类型（对应前端 tagPresets 类型名）")
+    type_summary = Column(Text, nullable=True, comment="视频一句话总结")
     status = Column(Enum(VideoStatus, name="videostatus", create_type=True), default=VideoStatus.PENDING)
     progress = Column(Integer, default=0)
     error_message = Column(String(1024), nullable=True)

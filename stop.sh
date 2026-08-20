@@ -15,8 +15,9 @@ if [ ! -z "$PID_8000" ]; then
 fi
 pkill -f "uvicorn.*app.main:app" || true
 
-# 3. 关闭 Celery 异步任务服务
+# 3. 关闭 Celery 异步任务服务（杀掉所有 start-worker 进程）
 echo "停止 Celery 服务..."
-pkill -f "celery -A celery_app" || true
+pkill -f "start-worker" || true
+pkill -f "celery.*worker" || true
 
 echo "所有服务已成功关闭！"

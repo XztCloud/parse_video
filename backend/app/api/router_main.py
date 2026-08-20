@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends
 
 from app.api.router import videos
-from app.api.router import clone, scripts, user, login
+from app.api.router import clone, scripts, user, login, render
 from app.api.deps import get_current_user
 
 
@@ -14,3 +14,4 @@ authenticated_router = APIRouter(dependencies=[Depends(get_current_user)])
 authenticated_router.include_router(scripts.router)
 authenticated_router.include_router(videos.router)
 authenticated_router.include_router(clone.router)
+authenticated_router.include_router(render.router)

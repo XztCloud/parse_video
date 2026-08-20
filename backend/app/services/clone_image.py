@@ -60,7 +60,9 @@ async def abstract_role_info(state: CloneImageState):
         clone_script.clone_progress = 36
         await db.commit()
 
-        parse_pointer = CloneAnalysis.model_validate_json(clone_script.clone_parse_pointer)
+        # 只需 Focus 部分（角色/场景/风格）
+        from app.services.llm import CloneAnalysisFocus
+        parse_pointer = CloneAnalysisFocus.model_validate(clone_script.clone_parse_pointer)
 
 
         statment = await db.execute(select(CloneScriptSegment).where(CloneScriptSegment.script_id==clone_script.id))

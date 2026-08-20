@@ -19,15 +19,8 @@ async def get_script(video_id: int, db: AsyncSessionDep):
             logger.error('not script!!!!')
             raise HTTPException(status_code=404, detail="脚本不存在")
         logger.info(f'find script, {script.parse_file_path}')
-        script_content = '未找到文件'
-        if script.parse_file_path and os.path.isfile(script.parse_file_path):
-            try:
-                with open(script.parse_file_path, 'r', encoding='utf-8') as f:
-                    script_content = f.read()
-                logger.info(f"从文件 {script.parse_file_path} 读取脚本内容成功")
-            except Exception as e:
-                logger.error(f"读取脚本内容时发生错误: {e}")
-                script_content = script.content
+        # content 返回分镜列表（scripts.content 字段），parse_pointer 返回焦点分析 JSON
+        script_content = script.content or []
 
         result = await db.execute(
             select(ScriptSegment)
@@ -35,10 +28,20 @@ async def get_script(video_id: int, db: AsyncSessionDep):
             .order_by(ScriptSegment.start_time)
         )
         segments = result.scalars().all()
+        # 兼容旧数据：parse_pointer 可能是 JSON 字符串（需要解析为 dict）
+        parse_ptr = script.parse_pointer
+        if isinstance(parse_ptr, str):
+            try:
+                import json as _json
+                parse_ptr = _json.loads(parse_ptr)
+            except Exception:
+                pass
         return {
             "id": script.id,
             "video_id": script.video_id,
             "content": script_content,
+            "parse_pointer": parse_ptr,
+            "parse_script": script.parse_script,
             "segments": [
                 {
                     "id": seg.id,
@@ -46,6 +49,7 @@ async def get_script(video_id: int, db: AsyncSessionDep):
                     "end_time": seg.end_time,
                     "shot_description": seg.shot_description,
                     "dialogue": seg.dialogue,
+                    "shot_features": seg.shot_features or [],
                     "segment_type": seg.segment_type.value,
                 }
                 for seg in segments
@@ -91,6 +95,7 @@ async def export_script(video_id: int, db: AsyncSessionDep):
                     "end_time": seg.end_time,
                     "shot_description": seg.shot_description,
                     "dialogue": seg.dialogue,
+                    "shot_features": seg.shot_features or [],
                     "segment_type": seg.segment_type.value,
                 }
                 for seg in segments

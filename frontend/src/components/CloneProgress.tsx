@@ -45,14 +45,16 @@ export default function CloneProgress({
         console.log("reClonePlot response is", data);
       }
       else if (clone_status === "PLOT_DONE") {
-        const data = await cloneVoices(cloneId, autoRun);
-        console.log("cloneVoices response is", data);
-      } else if (clone_status === "VOICE_DONE") {
+        // 复刻剧本完成 → 生成复刻分镜（Module 2 收尾）
         const data = await cloneSegments(cloneId, autoRun);
         console.log("cloneSegments response is", data);
       } else if (clone_status === "SEGMENTS_DONE") {
+        // 分镜完成 → 渲染第一步：配音
+        const data = await cloneVoices(cloneId, autoRun);
+        console.log("cloneVoices response is", data);
+      } else if (clone_status === "VOICE_DONE") {
         const data = await cloneImages(cloneId, autoRun);
-        console.log("cloneSegments response is", data);
+        console.log("cloneImages response is", data);
       } else if (clone_status === "IMAGE_DONE") {
         const data = await cloneFrames(cloneId, autoRun);
         console.log("cloneFrames response is", data);
@@ -183,8 +185,8 @@ export default function CloneProgress({
     : "";
 
   const statusSkipMap: Record<string, string> = {
-    PLOT_DONE: "VOICE_DONE",
-    SEGMENTS_DONE: "IMAGE_DONE",
+    PLOT_DONE: "SEGMENTS_DONE",
+    SEGMENTS_DONE: "VOICE_DONE",
   };
 
   const skipStatus = status
@@ -195,9 +197,9 @@ export default function CloneProgress({
     PENDING: "PENDING",
     FAILED: "PENDING",
     PLOT_DONE: "PENDING",
-    VOICE_DONE: "PLOT_DONE",
-    SEGMENTS_DONE: "VOICE_DONE",
-    IMAGE_DONE: "SEGMENTS_DONE",
+    SEGMENTS_DONE: "PLOT_DONE",
+    VOICE_DONE: "SEGMENTS_DONE",
+    IMAGE_DONE: "VOICE_DONE",
     FRAME_DONE: "IMAGE_DONE",
     SEGMENT_VIDEO_DONE: "FRAME_DONE",
     DONE: "SEGMENT_VIDEO_DONE"
@@ -222,7 +224,7 @@ export default function CloneProgress({
         <div className="flex justify-between items-center mb-4">
           <div>
             <h3 className="text-xl font-semibold text-gray-900">
-              视频复刻任务
+              渲染任务
             </h3>
 
             <p className="text-sm text-gray-500 mt-1">

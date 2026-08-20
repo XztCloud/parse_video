@@ -30,7 +30,7 @@ export default function ClonePage() {
   );
   const [activeTab, setActiveTab] = useState<
     "raw" | "voices" | "timeline" | "images" | "frames" | "segment_videos" | "video"
-  >("raw");
+  >("timeline");
 
   const onStatusChange = useCallback(async (cloneStatus: CloneStatus) => {
     try {
@@ -115,7 +115,7 @@ export default function ClonePage() {
     return (
       <main className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="bg-white rounded-xl shadow-sm border p-8 max-w-md text-center">
-          <div className="text-red-500 text-lg font-medium mb-2">复刻失败</div>
+          <div className="text-red-500 text-lg font-medium mb-2">渲染失败</div>
           <div className="text-gray-600 mb-6">{error}</div>
           <button
             onClick={() => router.back()}
@@ -158,11 +158,24 @@ export default function ClonePage() {
 
             {/* 标题与副标题 */}
             <div className="flex flex-col space-y-0.5">
-              <h1 className="bg-gradient-to-r from-gray-900 to-gray-700 bg-clip-text text-xl font-bold tracking-tight text-transparent sm:text-2xl">
-                复刻详情
-              </h1>
+              <div className="flex items-center gap-2">
+                <h1 className="bg-gradient-to-r from-gray-900 to-gray-700 bg-clip-text text-xl font-bold tracking-tight text-transparent sm:text-2xl">
+                  渲染工作台
+                </h1>
+                {cloneScript?.source_type && (
+                  <span
+                    className={`px-2 py-0.5 rounded text-xs font-medium ${
+                      cloneScript.source_type === "ORIGINAL"
+                        ? "bg-emerald-100 text-emerald-700"
+                        : "bg-blue-100 text-blue-700"
+                    }`}
+                  >
+                    {cloneScript.source_type === "ORIGINAL" ? "原片渲染" : "复刻剧本"}
+                  </span>
+                )}
+              </div>
               <p className="hidden text-xs text-gray-400 sm:block">
-                复刻原视频脚本，得到新的剧情大纲、声音、分镜、图片和视频
+                由剧本+分镜渲染 音频 / 人物场景图片 / 分镜视频 / 成片
               </p>
             </div>
           </div>

@@ -10,7 +10,7 @@ from app.models.script import Script, ScriptSegment, SegmentType
 from app.services.video_processor import VideoProcessor
 from app.services.asr_service import ASRService
 from app.services.visual_service import VisualService
-from app.services.script_generator import ScriptGenerator
+from app.services.script_generator import ScriptGenerator, extract_shot_features
 from celery.signals import worker_process_init, worker_process_shutdown
 
 from app.util import ImageRegenerateInput
@@ -49,6 +49,11 @@ def parse_video_task(self, video_id: int):
             raise ValueError(f"Video {video_id} not found")
         video.status = VideoStatus.PROCESSING
         video.progress = 0
+        # 记录视频时长（get_duration 返回秒数）
+        try:
+            video.duration = VideoProcessor.get_duration(video.file_path)
+        except Exception:
+            logger.exception('failed to get video duration, keep None')
         db.commit()
         
         audio_path = VideoProcessor.extract_audio(video.file_path)
@@ -90,6 +95,10 @@ def parse_video_task(self, video_id: int):
         script_result = process_loop.run(ScriptGenerator.generate_script(asr_segments, visual_segments))
         logger.info(f'script_result: {script_result}')
 
+        # 增强分镜描述：结合画面描述和对话生成更完整的 shot_description
+        script_result = process_loop.run(ScriptGenerator.enhance_shot_descriptions(script_result))
+        logger.info(f'enhanced script_result: {script_result}')
+
         parse_result = process_loop.run(ScriptGenerator.summary_script(script_result=script_result, output_dir=settings.UPLOAD_DIR + f'/{video.id}'))
         logger.info(f'parse_result: {parse_result}')
         video.progress = 95
@@ -104,10 +113,34 @@ def parse_video_task(self, video_id: int):
         db.add(script)
         db.flush()
 
-        for seg in script_result:
+        # LLM 批量生成每个分镜的镜头特征标签（一次调用），失败回退关键词
+        try:
+            shot_feats = process_loop.run(ScriptGenerator.generate_shot_features(script_result))
+        except Exception:
+            logger.exception('generate_shot_features failed, fallback to keyword extract')
+            shot_feats = []
+
+        for idx, seg in enumerate(script_result):
             logger.info(f'seg: {seg}, seg type: {type(seg)}')
-            segment = ScriptSegment(script_id=script.id, start_time=seg.get("start_time", 0), end_time=seg.get("end_time", 0), shot_description=seg.get("shot_description", ""), dialogue=seg.get("dialogue", ""), segment_type=SegmentType(seg.get("segment_type", "mixed")))
+            # 优先使用 LLM 标签，LLM 结果缺失或为空时回退到关键词提取
+            features = (
+                shot_feats[idx]
+                if idx < len(shot_feats) and isinstance(shot_feats[idx], list) and shot_feats[idx]
+                else extract_shot_features(seg.get("shot_description", ""))
+            )
+            segment = ScriptSegment(script_id=script.id, start_time=seg.get("start_time", 0), end_time=seg.get("end_time", 0), shot_description=seg.get("shot_description", ""), dialogue=seg.get("dialogue", ""), shot_features=features, segment_type=SegmentType(seg.get("segment_type", "mixed")))
             db.add(segment)
+
+        # 视频类型总结（失败不阻塞主流程，落回未知分类）
+        try:
+            type_result = process_loop.run(
+                ScriptGenerator.summary_video_type(json.dumps(script_result, ensure_ascii=False))
+            )
+        except Exception:
+            logger.exception('summary_video_type failed')
+            type_result = {"category": "未知分类", "summary": ""}
+        video.category = type_result.get("category") or "未知分类"
+        video.type_summary = type_result.get("summary") or ""
         video.status = VideoStatus.DONE
         video.progress = 100
         db.commit()

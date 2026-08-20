@@ -53,41 +53,27 @@ export default function ClonePage() {
     [videoId],
   );
 
-  const cloneStatusColor = (s: string) => {
-    const map: Record<string, string> = {
-      PENDING: "bg-gray-100 text-gray-600",
-      PLOT: "bg-yellow-100 text-yellow-500",
-      PLOT_DONE: "bg-green-100 text-green-500",
-      VOICE: "bg-yellow-100 text-yellow-550",
-      VOICE_DONE: "bg-green-100 text-green-550",
-      SEGMENTS: "bg-yellow-100 text-yellow-600",
-      SEGMENTS_DONE: "bg-green-100 text-green-600",
-      IMAGE: "bg-yellow-100 text-yellow-650",
-      IMAGE_DONE: "bg-green-100 text-green-650",
-      VIDEO: "bg-yellow-100 text-yellow-700",
-      DONE: "bg-green-100 text-green-700",
-      FAILED: "bg-red-100 text-red-700",
-    };
-    return map[s] || "bg-gray-100 text-gray-600";
+  // 复刻剧本范畴：plot(剧本) + segments(分镜) 两个阶段
+  // 状态归一到 复刻中 / 复刻完成 / 复刻失败
+  const clonePhase = (s: string) => {
+    // 复刻完成：剧本+分镜都已生成
+    if (["SEGMENTS_DONE", "VOICE", "VOICE_DONE", "IMAGE", "IMAGE_DONE", "FRAME", "FRAME_DONE", "SEGMENT_VIDEO", "SEGMENT_VIDEO_DONE", "MERGE_VIDEO", "DONE"].includes(s)) {
+      return "done";
+    }
+    if (s === "FAILED") return "failed";
+    // PLOT / PLOT_DONE / SEGMENTS / PENDING 及空 → 复刻中（进行中或尚未完成）
+    return "cloning";
   };
 
-  const cloneStatusText = (s: string) => {
-    const map: Record<string, string> = {
-      PENDING: "开始复刻",
-      PLOT: "生成剧本大纲",
-      PLOT_DONE: "剧本完成",
-      VOICE: "生成对话音频",
-      VOICE_DONE: "对话音频完成",
-      SEGMENTS: "生成分镜脚本",
-      SEGMENTS_DONE: "分镜完成",
-      IMAGE: "生成图片素材",
-      IMAGE_DONE: "图片素材完成",
-      VIDEO: "生成视频",
-      DONE: "复刻完成",
-      FAILED: "复刻失败",
-    };
-    return map[s] || "开始复刻";
-  };
+  const clonePhaseText = (s: string) =>
+    clonePhase(s) === "done" ? "复刻完成" : clonePhase(s) === "failed" ? "复刻失败" : "复刻中";
+
+  const clonePhaseColor = (s: string) =>
+    clonePhase(s) === "done"
+      ? "bg-green-100 text-green-700"
+      : clonePhase(s) === "failed"
+        ? "bg-red-100 text-red-700"
+        : "bg-yellow-100 text-yellow-700";
 
   useEffect(() => {
     const fetchScript = async () => {
@@ -166,7 +152,7 @@ export default function ClonePage() {
                 复刻 {title}
               </h1>
               <p className="hidden text-xs text-gray-400 sm:block">
-                复刻原视频脚本
+                选择一个主题，生成复刻剧本与分镜
               </p>
             </div>
           </div>
@@ -218,9 +204,9 @@ export default function ClonePage() {
                       <td className="py-3">
                         <div className="inline-flex items-center gap-2">
                           <span
-                            className={`px-2 py-1 rounded text-xs font-medium ${cloneStatusColor(script.clone_status)}`}
+                            className={`px-2 py-1 rounded text-xs font-medium ${clonePhaseColor(script.clone_status)}`}
                           >
-                            {cloneStatusText(script.clone_status)}
+                            {clonePhaseText(script.clone_status)}
                           </span>
                         </div>
                       </td>
@@ -231,7 +217,7 @@ export default function ClonePage() {
                           }}
                           className="text-sm text-blue-500 hover:text-blue-600"
                         >
-                          查看详情
+                          详情
                         </button>
                       </td>
                     </tr>

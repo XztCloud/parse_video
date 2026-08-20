@@ -18,6 +18,28 @@ class GenerateStatus(str, enum.Enum):
     PROCESSING = "PROCESSING"
     SUCCESS = "SUCCESS"
     FAILED = "FAILED"
+    
+class CloneStatusNew(str, enum.Enum):
+    PENDING = "PENDING"
+    PLOT = "PLOT"
+    PLOT_DONE = "PLOT_DONE"
+    SEGMENTS = "SEGMENTS"
+    SEGMENTS_DONE = "SEGMENTS_DONE"
+    FAILED = "FAILED"
+
+class GenerateFlowStatus(str, enum.Enum):
+    PENDING = "PENDING"
+    VOICE = "VOICE"
+    VOICE_DONE = "VOICE_DONE"
+    IMAGE = "IMAGE"
+    IMAGE_DONE = "IMAGE_DONE"
+    FRAME = 'FRAME'
+    FRAME_DONE = 'FRAME_DONE'
+    SEGMENT_VIDEO = "SEGMENT_VIDEO"
+    SEGMENT_VIDEO_DONE = "SEGMENT_VIDEO_DONE"
+    MERGE_VIDEO = "MERGE_VIDEO"
+    MERGE_VIDEO_DONE = "MERGE_VIDEO_DONE"
+    FAILED = "FAILED"
 
 class CloneStatus(str, enum.Enum):
     PENDING = "PENDING"
@@ -41,7 +63,7 @@ class Script(Base):
     __tablename__ = "scripts"
     id = Column(Integer, primary_key=True, index=True)
     video_id = Column(Integer, ForeignKey("videos.id", ondelete="CASCADE"), unique=True)
-    parse_pointer = Column(Text, nullable=True, comment="解析重点信息")
+    parse_pointer = Column(JSON, nullable=True, comment="解析重点信息（CloneAnalysisFocus JSON）")
     parse_script = Column(JSON, nullable=True, comment="解析剧本脚本")
     parse_file_path = Column(Text, nullable=True, comment="解析结果文件路径,markdown格式")
     content = Column(JSON, nullable=True, comment="完整剧本内容，包含分镜、台词等信息")
@@ -62,6 +84,7 @@ class ScriptSegment(Base):
     end_time = Column(Float, nullable=False)
     shot_description = Column(Text, nullable=True)
     dialogue = Column(JSON, nullable=True)
+    shot_features = Column(JSON, nullable=True, comment="镜头特征标签列表，如 特写/慢动作/全景")
     segment_type = Column(Enum(SegmentType, name="segmenttype", create_type=True), default=SegmentType.MIXED)
     script = relationship("Script", back_populates="segments")
 
@@ -69,9 +92,11 @@ class CloneScript(Base):
     __tablename__ = "clone_scripts"
     id = Column(Integer, primary_key=True, index=True)
     script_id = Column(Integer, ForeignKey("scripts.id", ondelete="CASCADE"))
+    source_type = Column(String(16), nullable=False, default='CLONE', server_default='CLONE', comment="工作台来源：CLONE=复刻剧本 / ORIGINAL=原片直转渲染")
     clone_theme = Column(String(255), comment="复刻视频主题")
     clone_requirements = Column(JSON, nullable=True, comment="复刻视频的要求")
-    clone_parse_pointer = Column(JSON, nullable=True, comment="复刻剧本解析")
+    clone_parse_pointer = Column(JSON, nullable=True, comment="解析重点信息（CloneAnalysisFocus JSON）")
+    clone_parse_script = Column(JSON, nullable=True, comment="解析剧本脚本 CloneAnalysisPlot JSON")
     clone_parse_file_path = Column(Text, nullable=True, comment="复刻解析结果文件路径,markdown格式")
     clone_status = Column(Enum(CloneStatus, name="clonestatus", create_type=True), default=CloneStatus.PENDING)
     clone_progress = Column(Integer, default=0)

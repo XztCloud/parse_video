@@ -25,8 +25,8 @@ from celery.utils.log import get_task_logger
 logger = get_task_logger(__name__)
 
 class VideScript(TypedDict):
-    analysis_focus: str     # 分析重点
-    plot_script: str        # 剧情脚本
+    analysis_focus: str     # 分析重点（CloneAnalysisFocus JSON）
+    plot_script: str        # 剧情脚本（CloneAnalysisPlot JSON）
     
 
 class ClonePlotState(TypedDict):
@@ -368,8 +368,13 @@ async def creative_plot(state: ClonePlotState) -> Command[Literal['process_error
             json_response = clone_analysis.model_dump_json()
             logger.info(f"json_response: {json_response}")
 
+            # 拆分为 Focus（角色/场景/风格）和 Plot（剧情段落）两部分
+            focus_data = clone_analysis.model_dump(include={"role_library", "scene_library", "global_style", "core_shell_point"})
+            plot_data = clone_analysis.model_dump(include={"plot_script"})
+
             clone_script.clone_parse_file_path = md_path
-            clone_script.clone_parse_pointer = json_response
+            clone_script.clone_parse_pointer = focus_data
+            clone_script.clone_parse_script = plot_data
             clone_script.clone_progress = 20
             clone_script.clone_status = CloneStatus.PLOT_DONE
             await db.commit() 
