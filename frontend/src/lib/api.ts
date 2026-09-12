@@ -99,23 +99,17 @@ export interface ScriptResponse {
   segments: ScriptSegment[];
 }
 
-export interface CloneListItem {
-  id: number;
-  clone_theme: string;
-  clone_status: string;
-  clone_progress: number;
-  error_message?: string;
-}
-
 export interface CloneAllItem {
   id: number;
   script_id: number;
-  video_id: number;
+  video_id: number | null;
   video_title: string;
   video_category: string | null;
   clone_theme: string;
   clone_status: string;
   clone_progress: number;
+  generate_flow_status: string;
+  generate_flow_progress: number;
   error_message?: string;
   source_type: string;
   created_at: string | null;
@@ -134,6 +128,8 @@ export interface CloneStatusResponse {
   id: number;
   clone_status: string;
   clone_progress: number;
+  generate_flow_status: string;
+  generate_flow_progress: number;
   error_message?: string;
 }
 
@@ -182,6 +178,11 @@ export interface ClonseScriptResponse {
   id: number;
   source_type: string;
   content: string;
+  clone_status?: string;
+  generate_flow_status?: string;
+  clone_progress?: number;
+  generate_flow_progress?: number;
+  error_message?: string | null;
   clone_parse_pointer?: any;
   clone_parse_script?: any;
   created_at?: string;
@@ -215,34 +216,6 @@ export interface RegenerateResponse {
   version: number;
 }
 
-export const getDefaultCloneRequest = (videoId: number): ClonePlotRequest => ({
-  videoId,
-  cloneTheme: 'standard',
-  autoRun: false,
-  style: null,
-  product: null,
-  productDesc: null,
-});
-
-export enum CloneStatus {
-  PENDING = "PENDING",
-  PLOT = "PLOT",
-  PLOT_DONE = "PLOT_DONE",
-  VOICE = "VOICE",
-  VOICE_DONE = "VOICE_DONE",
-  SEGMENTS = "SEGMENTS",
-  SEGMENTS_DONE = "SEGMENTS_DONE",
-  IMAGE = "IMAGE",
-  IMAGE_DONE = "IMAGE_DONE",
-  FRAME = "FRAME",
-  FRAME_DONE = "FRAME_DONE",
-  SEGMENT_VIDEO = "SEGMENT_VIDEO",
-  SEGMENT_VIDEO_DONE = "SEGMENT_VIDEO_DONE",
-  MERGE_VIDEO = "MERGE_VIDEO",
-  DONE = "DONE",
-  FAILED = "FAILED",
-}
-
 export const uploadVideo = async (file: File): Promise<VideoUploadResponse> => {
   const formData = new FormData();
   formData.append("file", file);
@@ -272,11 +245,6 @@ export const getScript = async (videoId: number): Promise<ScriptResponse> => {
   return response.data;
 };
 
-export const listCloneScripts = async (scriptId: number): Promise<CloneListItem[]> => {
-  const response = await api.get<CloneListItem[]>(`${API_PREFIX}/clone/${scriptId}/list_clone_scripts`);
-  return response.data;
-};
-
 export const listAllCloneScripts = async (offset: number = 0, limit: number = 50): Promise<CloneAllItem[]> => {
   const response = await api.get<CloneAllItem[]>(`${API_PREFIX}/clone/list_all`, { params: { offset, limit } });
   return response.data;
@@ -292,11 +260,6 @@ export const clonePlot = async (cloneRequest: ClonePlotRequest): Promise<ClonePl
   return response.data;
 };
 
-export const reClonePlot = async (cloneScriptId: number, autoRun: boolean=false): Promise<ClonePlotResponse> => {
-  const response = await api.post<ClonePlotResponse>(`${API_PREFIX}/clone/re_plot`, {cloneScriptId, autoRun});
-  return response.data;
-};
-
 export const getCloneStatus = async (cloneScriptId: number): Promise<CloneStatusResponse> => {
   const response = await api.get<CloneStatusResponse>(`${API_PREFIX}/clone/${cloneScriptId}/status`);
   return response.data;
@@ -307,43 +270,13 @@ export const getCloneScript = async (cloneScriptId: number): Promise<ClonseScrip
   return response.data;
 };
 
-export const exportClonePlot = async (videoId: number): Promise<Blob> => {
-  const response = await api.get(`${API_PREFIX}/clone/${videoId}/export/plot`, { responseType: "blob" });
-  return response.data;
-};
-
 /**
  * 推进复刻到指定阶段。
- * 后端已合并原 /clone/voices、/segments、/images、/frames、/segment_videos、/video 六个接口为 /clone/phase。
  * step: 2=分镜 3=配音 4=生图 5=参考帧 6=分镜视频 7=合并成片
  */
 export const clonePhase = async (cloneScriptId: number, step: number, autoRun: boolean = false): Promise<CloneSegmentsResponse> => {
   const response = await api.post<CloneSegmentsResponse>(`${API_PREFIX}/clone/phase`, {cloneScriptId, autoRun, step});
   return response.data;
-}
-
-export const cloneSegments = async (cloneScriptId: number, autoRun: boolean=false): Promise <CloneSegmentsResponse> => {
-  return clonePhase(cloneScriptId, 2, autoRun);
-}
-
-export const cloneVoices = async (cloneScriptId: number, autoRun: boolean=false): Promise <CloneSegmentsResponse> => {
-  return clonePhase(cloneScriptId, 3, autoRun);
-}
-
-export const cloneImages = async (cloneScriptId: number, autoRun: boolean=false): Promise <CloneSegmentsResponse> => {
-  return clonePhase(cloneScriptId, 4, autoRun);
-}
-
-export const cloneFrames = async (cloneScriptId: number, autoRun: boolean=false): Promise <CloneSegmentsResponse> => {
-  return clonePhase(cloneScriptId, 5, autoRun);
-}
-
-export const cloneSegmentVideo = async (cloneScriptId: number, autoRun: boolean=false): Promise <CloneSegmentsResponse> => {
-  return clonePhase(cloneScriptId, 6, autoRun);
-}
-
-export const cloneMergeVideo = async (cloneScriptId: number, autoRun: boolean=false): Promise <CloneSegmentsResponse> => {
-  return clonePhase(cloneScriptId, 7, autoRun);
 }
 
 /** 输出视频模块：以原片解析出的剧本+分镜为输入，一键创建 ORIGINAL 渲染工作台并自动跑全流程 */
@@ -387,4 +320,93 @@ export const getRegenerateStatus = async (category: string, id: number) : Promis
   const response = await api.get(`${API_PREFIX}/clone/${category}/${id}/regenerate`)
   return response.data
 }
+
+// ==================== 小说转剧本 API ====================
+
+export interface NovelUploadResponse {
+  id: number;
+  title: string;
+  chapter_count?: number | null;
+  status: string;
+  created_at: string;
+}
+
+export interface NovelGenerateRequest {
+  novelId: number;
+  theme: string;
+  autoRun?: boolean;
+  requirements?: Record<string, any>;
+}
+
+export interface NovelGenerateResponse {
+  novelId: number;
+  status: string;
+  clone_script_ids: number[];
+}
+
+export interface NovelStatusResponse {
+  id: number;
+  title: string;
+  status: string;
+  progress: number;
+  error_message?: string | null;
+  chapter_count?: number | null;
+  script_count: number;
+  created_at: string;
+}
+
+export interface NovelScriptItem {
+  id: number;
+  clone_theme?: string | null;
+  clone_status: string;
+  clone_progress: number;
+  source_type: string;
+  chapter_index?: number | null;
+  chapter_title?: string | null;
+  scene_index?: number | null;
+}
+
+/** 通过文件上传创建小说 */
+export const uploadNovel = async (file: File, title: string): Promise<NovelUploadResponse> => {
+  const formData = new FormData();
+  formData.append("file", file);
+  formData.append("title", title);
+  const response = await api.post<NovelUploadResponse>(`${API_PREFIX}/novel/upload`, formData, {
+    headers: { "Content-Type": "multipart/form-data" },
+  });
+  return response.data;
+};
+
+/** 通过粘贴文本创建小说 */
+export const createNovel = async (title: string, content: string): Promise<NovelUploadResponse> => {
+  const response = await api.post<NovelUploadResponse>(`${API_PREFIX}/novel/create`, {
+    title,
+    content,
+  });
+  return response.data;
+};
+
+/** 触发小说转剧本生成 */
+export const generateNovel = async (request: NovelGenerateRequest): Promise<NovelGenerateResponse> => {
+  const response = await api.post<NovelGenerateResponse>(`${API_PREFIX}/novel/generate`, request);
+  return response.data;
+};
+
+/** 查询小说处理状态 */
+export const getNovelStatus = async (novelId: number): Promise<NovelStatusResponse> => {
+  const response = await api.get<NovelStatusResponse>(`${API_PREFIX}/novel/${novelId}/status`);
+  return response.data;
+};
+
+/** 获取小说生成的所有剧本 */
+export const getNovelScripts = async (novelId: number): Promise<NovelScriptItem[]> => {
+  const response = await api.get<NovelScriptItem[]>(`${API_PREFIX}/novel/${novelId}/scripts`);
+  return response.data;
+};
+
+/** 获取所有小说列表 */
+export const listNovels = async (skip: number = 0, limit: number = 20): Promise<any[]> => {
+  const response = await api.get(`${API_PREFIX}/novel/list_all`, { params: { skip, limit } });
+  return response.data;
+};
 

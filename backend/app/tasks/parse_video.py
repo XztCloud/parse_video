@@ -159,22 +159,24 @@ def parse_video_task(self, video_id: int):
 
 
 @celery_app.task(bind=True)
-def clone_video_task(self, clone_script_id: int, step: int=1, auto_run: bool=False) -> any:
+def clone_video_task(self, clone_script_id: int, step: int=1, auto_run: bool=False, stop_step: int=8) -> any:
     """复刻视频worker
 
     Args:
         clone_script_id (int): 复刻信息id
         step (int, optional): 执行步骤 plot voice segments image video. Defaults to 1.
         auto_run (bool, optional): 是否自动执行下一步. Defaults to False.
+        stop_step (int, optional): 自动执行到该阶段为止（含）；默认 8=全流程，
+            复刻剧本只跑到分镜则传 2（end 于 SEGMENTS_DONE）。Defaults to 8.
 
     Returns:
         any: worker返回结果
     """
-    return process_loop.run(begin_clone(clone_script_id, step=step, auto_run=auto_run))
+    return process_loop.run(begin_clone(clone_script_id, step=step, auto_run=auto_run, stop_step=stop_step))
 
 @celery_app.task(bind=True)
 def regenerate_task(self, category: str, id: int, payload: dict):
-    
+
     main_category, detail_category = category.split('.')
     logger.info(f'receive regenerate image msg:{main_category} - {detail_category}')
     if main_category == 'image':
@@ -182,4 +184,30 @@ def regenerate_task(self, category: str, id: int, payload: dict):
             process_loop.run(regenerate_image(detail_category, id, payload))
         else:
             process_loop.run(regenerate_segment_frame(id, payload))
-            
+
+
+@celery_app.task(bind=True)
+def novel_generate_task(self, novel_id: int, theme: str, requirements: dict | None = None, auto_run: bool = False):
+    """小说转剧本Celery任务
+
+    Args:
+        novel_id: 小说ID
+        theme: 主题
+        requirements: 额外要求
+        auto_run: 是否自动运行下游pipeline
+
+    Returns:
+        创建的CloneScript ID列表
+    """
+    from app.services.novel_script_generator import generate_novel_scripts
+
+    try:
+        logger.info(f'Starting novel_generate_task for novel_id={novel_id}')
+        result = process_loop.run(
+            generate_novel_scripts(novel_id, theme, requirements, auto_run)
+        )
+        logger.info(f'novel_generate_task completed, created {len(result)} CloneScripts')
+        return result
+    except Exception as e:
+        logger.exception(f'novel_generate_task failed: {e}')
+        raise

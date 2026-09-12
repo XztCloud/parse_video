@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field, TypeAdapter
 from pydub import AudioSegment
 from pydub.playback import play
 from sqlalchemy import delete, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.services.llm import ActorLines, AudioTimeline, CharacterAsset, CharacterManifest, CloneAnalysis, ReloadLines, ReloadLinesPrompt, Segment, StoryBoard, reload_lines_model
@@ -50,6 +51,7 @@ class CloneStoryboardState(TypedDict):
     error: str
     retry_cnt: int  # 分镜不合规重试次数
     retry_messages: str # 检查到的不符合预期的数据合集
+    require_voice: bool  # 落库分镜时是否强制要求台词存在音频。NOVEL来源在voice阶段前先生成分镜，传False跳过音频强校验
 
 def log_node_start():
     # [1] 代表上一层调用者的堆栈帧
@@ -290,61 +292,13 @@ async def reset_segment_duration(state: CloneStoryboardState):
 async def save_storyboard(state: CloneStoryboardState):
     log_node_start()
     db = process_loop.AsyncSessionLocal()
-    async def add_voice_path(lines_list: List[AudioTimeline]):
-        statment = await db.execute(select(CloneVoice).where(CloneVoice.script_id == state['clone_script_id']))
-        clone_voice_list = statment.scalars().all()
-        list_of_dicts = [item.model_dump() for item in lines_list]
-        if not clone_voice_list:
-            return list_of_dicts
-        for lines_dict in list_of_dicts:
-            # 1. 计算要查台词的 MD5
-            search_md5 = get_md5(lines_dict['lines'])
-
-            # 2. 精准命中联合索引查询
-            statment = await db.execute(select(CloneVoice.path).where(
-                CloneVoice.role_name == lines_dict['role_name'],
-                CloneVoice.text_md5 == search_md5,
-                CloneVoice.voice_type == lines_dict['audio_style']))
-            result = statment.scalars().first()
-
-            if result:
-                audio_path = result
-                lines_dict['audio_path'] = audio_path
-                logger.info(f"找到音频路径: {audio_path}")
-            else:
-                logger.error("未找到对应音频")
-                raise Exception(f'未找到台词【{lines_dict['lines']}】对应的音频')
-            
-        return list_of_dicts
-
     try:
-        statment = await db.execute(select(CloneScript).where(CloneScript.id == state['clone_script_id']))
-        clone_script = statment.scalar_one_or_none()
-        if not clone_script or not clone_script.clone_parse_pointer:
-            raise Exception('not find clone_script in generate_storyboard')
-        
-        storyboard_script = state['storyboard_script']
-        offset_time = 0.0
-        for segment in storyboard_script.segments:
-            dialogue = await add_voice_path(segment.audio_timeline)
-            logger.info(f'dialogue is {dialogue}')
-            clone_segement = CloneScriptSegment(
-                script_id=state['clone_script_id'],
-                start_time=round(offset_time, 2),
-                end_time=round(offset_time+segment.duration_budget, 2),
-                shot_description=segment.prompt_for_video,
-                dialogue=dialogue,
-                role_view_info=[role_view.model_dump() for role_view in segment.role_view_info],
-                segment_type=segment.target_emotion,
-                shot_type=segment.shot_type,
-                scene_name=segment.scene_name
-            )
-            offset_time = round(offset_time+segment.duration_budget, 2)
-            db.add(clone_segement)
-        
-        clone_script.clone_progress = 35
-        clone_script.clone_status = CloneStatus.SEGMENTS_DONE
-        await db.commit()
+        await save_storyboard_segments(
+            state['clone_script_id'],
+            state['storyboard_script'],
+            require_voice=state.get('require_voice', True),
+            db=db,
+        )
 
         return Command(goto='__end__')
     except Exception as e:
@@ -358,6 +312,100 @@ async def save_storyboard(state: CloneStoryboardState):
         )
     finally:
         await db.close()
+
+
+async def save_storyboard_segments(
+    clone_script_id: int,
+    storyboard_script: StoryBoard,
+    require_voice: bool = True,
+    db: AsyncSession | None = None,
+) -> int:
+    """把分镜脚本（StoryBoard）落库为CloneScriptSegment，供CLONE与NOVEL流程复用
+
+    Args:
+        clone_script_id: CloneScript ID
+        storyboard_script: 分镜脚本（含每镜的 role_view_info 出场信息）
+        require_voice: 是否强制要求台词已存在音频。NOVEL来源在voice阶段之前先生成分镜，
+            此时没有CloneVoice，传False跳过音频校验（有音频则仍会填充audio_path）。
+        db: 数据库会话，None时自建
+
+    Returns:
+        创建的分镜数量
+
+    Raises:
+        Exception: require_voice=True但台词缺音频时抛出
+    """
+    owns_db = db is None
+    if owns_db:
+        db = process_loop.AsyncSessionLocal()
+    try:
+        # 清理旧分镜（重跑时防重复）
+        await db.execute(delete(CloneScriptSegment).where(CloneScriptSegment.script_id == clone_script_id))
+
+        async def add_voice_path(lines_list: List[AudioTimeline]):
+            statment = await db.execute(select(CloneVoice).where(CloneVoice.script_id == clone_script_id))
+            clone_voice_list = statment.scalars().all()
+            list_of_dicts = [item.model_dump() for item in lines_list]
+            if not clone_voice_list:
+                return list_of_dicts
+            for lines_dict in list_of_dicts:
+                # 1. 计算要查台词的 MD5
+                search_md5 = get_md5(lines_dict['lines'])
+
+                # 2. 精准命中联合索引查询
+                statment = await db.execute(select(CloneVoice.path).where(
+                    CloneVoice.role_name == lines_dict['role_name'],
+                    CloneVoice.text_md5 == search_md5,
+                    CloneVoice.voice_type == lines_dict['audio_style']))
+                result = statment.scalars().first()
+
+                if result:
+                    audio_path = result
+                    lines_dict['audio_path'] = audio_path
+                    logger.info(f"找到音频路径: {audio_path}")
+                elif require_voice:
+                    logger.error("未找到对应音频")
+                    raise Exception(f'未找到台词【{lines_dict['lines']}】对应的音频')
+
+            return list_of_dicts
+
+        clone_script = (await db.execute(select(CloneScript).where(CloneScript.id == clone_script_id))).scalar_one_or_none()
+        if not clone_script:
+            raise Exception(f'not find clone_script: {clone_script_id}')
+
+        offset_time = 0.0
+        count = 0
+        for segment in storyboard_script.segments:
+            dialogue = await add_voice_path(segment.audio_timeline)
+            logger.info(f'dialogue is {dialogue}')
+            clone_segement = CloneScriptSegment(
+                script_id=clone_script_id,
+                is_novel=True if clone_script.source_type == 'NOVEL' else False,
+                start_time=round(offset_time, 2),
+                end_time=round(offset_time+segment.duration_budget, 2),
+                shot_description=segment.prompt_for_video,
+                dialogue=dialogue,
+                role_view_info=[role_view.model_dump() for role_view in segment.role_view_info],
+                segment_type=segment.target_emotion,
+                shot_type=segment.shot_type,
+                scene_name=segment.scene_name
+            )
+            offset_time = round(offset_time+segment.duration_budget, 2)
+            db.add(clone_segement)
+            count += 1
+
+        clone_script.clone_progress = 100
+        clone_script.clone_status = CloneStatus.SEGMENTS_DONE
+        await db.commit()
+        logger.info(f'保存了 {count} 个分镜 (clone_script_id={clone_script_id})')
+        return count
+    except Exception as e:
+        await db.rollback()
+        logger.exception('save_storyboard_segments 切分分镜出错')
+        raise e
+    finally:
+        if owns_db:
+            await db.close()
     
 
 

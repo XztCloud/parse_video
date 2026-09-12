@@ -6,7 +6,7 @@ import { ScriptSegment } from "@/lib/api";
 interface DetailModalProps {
   isOpen: boolean;
   onClose: () => void;
-  type: 'parse' | 'copy';
+  type: 'parse' | 'copy' | 'novel';
   title?: string;
   subtitle?: string;
   segments?: ScriptSegment[];
@@ -102,9 +102,9 @@ export default function DetailModal({
 
   if (!isOpen) return null;
 
-  const modalTitle = title || (type === 'parse' ? '解析详情' : '复制剧本详情');
-  const modalSubtitle = subtitle || (type === 'parse' ? '视频解析结果预览' : 'AI 创意改写结果');
-  const iconColor = type === 'parse' ? 'from-indigo-500 to-purple-500' : 'from-purple-500 to-pink-500';
+  const modalTitle = title || (type === 'parse' ? '解析详情' : type === 'copy' ? '复制剧本详情' : '小说剧本详情');
+  const modalSubtitle = subtitle || (type === 'parse' ? '视频解析结果预览' : type === 'copy' ? 'AI 创意改写结果' : '小说转剧本结果');
+  const iconColor = type === 'parse' ? 'from-indigo-500 to-purple-500' : type === 'copy' ? 'from-purple-500 to-pink-500' : 'from-indigo-500 to-blue-500';
   const hasRealData = Array.isArray(segments) && segments.length > 0;
 
   return (

@@ -16,6 +16,7 @@ class ProcessLoopManager:
         self.thread = None
         self.async_engine = None
         self.AsyncSessionLocal = None
+        self.redis_client = None
         
     def init_process(self):
         if self.loop is not None and not self.loop.is_closed():
@@ -56,6 +57,12 @@ class ProcessLoopManager:
         if self.loop and self.async_engine:
             asyncio.run_coroutine_threadsafe(self.async_engine.dispose(), self.loop).result()
             self.loop.call_soon_threadsafe(self.loop.stop)
+    
+    def get_redis_client(self):
+        if self.redis_client is None:
+            from redis.asyncio import Redis
+            self.redis_client = Redis.from_url(settings.REDIS_URL, decode_responses=True)
+        return self.redis_client
             
 # 全局进程级单例
 process_loop = ProcessLoopManager()

@@ -37,17 +37,22 @@ GROUP_MAX_IMAGES = 5
 LLM_CALL_TIMEOUT = 300.0
 LLM_MAX_RETRIES = 3
 
-# H3 Ref2VA 六段式输出规则（参考 skill/h3-prompt-writing）
+# H3 Ref2VA 六段式输出规则（参考 skill/h3-prompt-writing 的 ref-en.txt / base-en.txt）
 H3_SYSTEM_PROMPT = """
 你是一位精通 MiniMax H3 视频生成提示词的工程师。请按 H3 Full-Reference Mode（Ref2VA）的
 六段式格式，为一个分镜组（多个连续镜头组成的一段视频）生成一段 H3 提示词。
 
 输入 JSON 说明：
-- duration_budget: 该分镜组的目标总时长（秒），提示词中的时间轴必须与其吻合。
+- duration_budget: 该分镜组的目标总时长（秒），提示词中的时间轴必须与其吻合；外部音轨会按此
+  时长驱动口型。
 - shots: 按时间顺序排列的镜头列表。每镜包含：
     start_time / end_time（组内相对时间，第一镜从 0 开始）、scene_name（场景名）、
-    shot_type（景别）、shot_description（镜头描述）、dialogue（台词，含 role_name/lines/audio_style）、
+    shot_type（景别）、shot_description（镜头描述）、dialogue（台词）、
     role_view_info（该镜中可见角色及其位置/动作/表情）。
+  dialogue 每项含 role_name / lines / audio_style / lines_flag / start_offset / end_offset：
+    - lines_flag: head/body/tail/all。一句话跨越多个分镜时中间分镜必用 body；
+      lines 中始终给出完整句文本（head=起始段、body=中间段、tail=收尾段、all=独立句）。
+    - start_offset/end_offset: 台词在当前分镜时间线上的相对起止（秒）。
 - refer_image: 参考图片清单。同一资产（同一张角色图/场景图）在整个分镜组中只出现一次。
 
 输出必须严格按以下六个 section 的顺序组织，section 名保持英文，正文用中文描述
@@ -57,25 +62,41 @@ H3_SYSTEM_PROMPT = """
    用 <Picture N> 和 <Subject N> 定义参考内容。<Subject N> 表示可复用的人物/场景，
    <Picture N> 是参考图片。例如：
    "<Subject 1> 是 <Picture 1> 中的人物，保持其面部特征与服饰。"
+   对需要在画面中露出并说话的角色，在 subject_definitions 中为其语音定义一个 <Audio N>
+   音色引用并绑定到说话人，写法："<Subject 2> (S2) 的语音音色与语气参考，来自 <Audio 2>。"
+   画外说话人没有对应可见角色图时，不分配 <Picture N>，但仍可给出 <Audio N> 音色引用。
 2. summary:
-   用一句英文概括视频内容与参考关系，带 [reference generation] 前缀。
+   用一句英文概括视频内容与参考关系，带 [reference generation] 前缀；存在语音驱动时前缀写
+   [reference generation + audio reference]。
 3. retention_analysis:
-   逐条说明每个 <Subject N>/<Picture N> 的保留方式（fully_preserved / partially_preserved / attribute_transfer / weak_reference）。
+   逐条说明每个 <Subject N>/<Picture N>/<Audio N> 的保留方式（fully_preserved /
+   partially_preserved / attribute_transfer / weak_reference；音频通常为 reference——
+   仅参考音色语气，不复制原信号）。
 4. detailed_description:
    按时间顺序逐镜描述整组分镜：构图、主体、环境、动作、镜头运动、声音、
    以及参考内容出现的位置。第一镜标 [Shot 1]（组内 00:00 开始），后续镜头用
    [Shot N] At MM:SS.mmm 标注组内相对切点。对话用 <d>[Chinese] ...</d> 标记，
    说话人按出现顺序分配稳定编号 (S1)、(S2) 并在全片复用。
 5. overall_soundscape:
-   概括整体环境音与物理音效。
+   概括整体环境音与物理音效；只写环境/动作产生的非语言声，不重复对白。
 6. non_diegetic_music:
    描述仅观众可闻的背景音乐；无则写 N/A。
 
-规则：
-- 每个 <Picture N> 必须在 subject_definitions 中定义，且全程标签一致；同一资产在
+音频与台词规则：
+- 每条台词都要写明说话人动作/表情 + 口型与音轨同步，例如 "His mouth moves in natural sync
+  with the line"。音频由外部音轨驱动，提示词必须让口型与台词窗口对齐。
+- 跨镜长台词（lines_flag 为 head/body/tail）：说明完整句延续当前镜，在切入切出的两贴近
+  写上 <scenetrans> 并注明音频无缝跨镜延续（例如 continues seamlessly across the cut），
+  不作句子的重述或重启；全片复用同一说话人编号 (Sx)。
+- 画外音：说话人未出现在 shots 的 role_view_info 中、或 visibility 非 visible 的台词，
+  用 "says in an off-screen voiceover: <d>...</d> while his/her lips remain completely closed"。
+- 每镜内台词窗口必须与输入 start_offset/end_offset 一致；切点时间（[Shot N] At MM:SS.mmm）
+  与 duration_budget 吻合。
+
+其他规则：
+- 每个 <Picture N> / <Audio N> 必须在 subject_definitions 中定义，且全程标签一致；同一资产在
   分镜组内多次出现时保持同一编号，不要新增定义。
 - 只描述输入 JSON 中提供的角色与场景，不编造不在场的人物。
-- 对话角色若没有对应可见角色图，作为画外音处理，不分配 <Picture N>。
 - 必须完整覆盖输入中的所有镜头与台词，一个分镜都不能遗漏；镜头顺序与
   相对时间按输入 JSON 为准。
 """
@@ -246,12 +267,16 @@ def _build_group_input(
                 "emotion": v.get("emotion"),
             })
 
-        # dialogue 精简：role_name / lines / audio_style（脚本内容，全部保留）
+        # dialogue 精简：role_name / lines / audio_style + 台词窗口（脚本内容，全部保留）。
+        # lines_flag（head/body/tail/all）与 start/end_offset 供 LLM 对齐跨镜长台词与音频切片。
         dialogue = [
             {
                 "role_name": d.get("role_name"),
                 "lines": d.get("lines"),
                 "audio_style": d.get("audio_style"),
+                "lines_flag": d.get("lines_flag"),
+                "start_offset": d.get("start_offset"),
+                "end_offset": d.get("end_offset"),
             }
             for d in (seg.get("dialogue") or [])
             if isinstance(d, dict) and d.get("role_name")
@@ -295,6 +320,24 @@ def _build_group_input(
                         "path": ri.get("path", ""),
                     })
                     refer_lines.append(f"角色参考 <{label}>（{role_name}）")
+
+    # 无任何可见角色参考的分镜组（纯场景/产品展示/空镜等）：
+    # 回落引用该组场景的场景图作为唯一参考，否则后续视频生成会因没有参考图报错。
+    if not refer_lines:
+        added_scenes: set[str] = set()
+        for shot in shots:
+            scene_name = shot.get("scene_name")
+            if not scene_name or scene_name in added_scenes or scene_name not in scene_images:
+                continue
+            si = scene_images[scene_name]
+            label = _assign_picture({
+                "category": "scene", "id": si["id"], "name": scene_name,
+                "path": si.get("path", ""),
+            })
+            refer_lines.append(f"场景参考 <{label}>（{scene_name}）")
+            added_scenes.add(scene_name)
+            if len(refer_lines) >= 5:
+                break
 
     duration_budget = round(sum(_seg_duration(s) for s in group), 3)
 

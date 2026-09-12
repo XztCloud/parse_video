@@ -16,12 +16,12 @@ from pydantic import BaseModel
 import requests
 from sqlalchemy import delete, select
 from app.tasks.process_loop_manager import process_loop
-from app.models.script import CloneImage, CloneRoleImage, CloneSceneImage, CloneScript, CloneScriptSegment, CloneSegmentImg, CloneStatus, GenerateStatus, ScriptSegment
+from app.models.script import CloneImage, CloneRoleImage, CloneSceneImage, CloneScript, CloneScriptSegment, CloneSegmentImg, CloneStatus, GenerateFlowStatus, GenerateStatus, ScriptSegment
 from app.services.clone_plot import send_fail_status
 from app.services.gen_image import GenImage, GenImageParams, ImageSize, ReferImageInfo
 from app.services.llm import SCENE_GENERATE_PROMPT, CharacterManifest, CloneAnalysis, SceneManifest, SegmentRoleView, scene_generate_model, ainvoke_structured_robust
 from app.config import settings
-from app.util import ImageRegenerateInput, async_retry_error, get_image_info, make_dir
+from app.util import IMAGE_BEGIN_PROGRESS, IMAGE_COMPLETE_PROGRESS, ImageRegenerateInput, async_retry_error, get_image_info, make_dir
 from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = get_task_logger(__name__)
@@ -57,7 +57,7 @@ async def abstract_role_info(state: CloneImageState):
         # 先删除 role scene 已生成的数据
         await db.execute(delete(CloneRoleImage).where(CloneRoleImage.script_id == state['clone_script_id']))
         await db.execute(delete(CloneSceneImage).where(CloneSceneImage.script_id == state['clone_script_id']))
-        clone_script.clone_progress = 36
+        clone_script.generate_flow_progress = IMAGE_BEGIN_PROGRESS
         await db.commit()
 
         # 只需 Focus 部分（角色/场景/风格）
@@ -217,30 +217,35 @@ async def generate_image(prompt: str, save_dir: str|Path, prefix:str,  img_type:
         image_size=ImageSize.SIZE_1024x1024,
         seed=seed
     )
-    if settings.USE_COMFY_IMAGE:
-        match img_type:
-            case 'role':
+    
+    match img_type:
+        case 'role':
+            if settings.USE_COMFY_IMAGE:
                 # 旧版 flux2-klien
                 # params.image_size=ImageSize.SIZE_512x640
                 # image_path_list = await GenImage.t2i_local_flux2_klien(gen_image_params=params, save_dir=save_dir, prefix=prefix)
                 # 新版 krea2 生成人物四视图
                 image_path_list = await GenImage.t2i_role_local_krea2(gen_image_params=params, save_dir=save_dir, prefix=prefix)
-            case 'scene':
-                params.image_size=ImageSize.SIZE_1280x720
+            else:
+                image_path_list = await GenImage.t2i_runninghub_krea2(gen_image_params=params, save_dir=save_dir, prefix=prefix, task_type='four_view')
+        case 'scene':
+            params.image_size=ImageSize.SIZE_1280x720
+            if settings.USE_COMFY_IMAGE:
                 # image_path_list = await GenImage.t2i_local_flux2_klien(gen_image_params=params, save_dir=save_dir, prefix=prefix)
                 image_path_list = await GenImage.t2i_local_krea2(gen_image_params=params, save_dir=save_dir, prefix=prefix)
-            case 'frame':
-                # 这里要根据目标宽高比设置，目前指定竖屏
-                params.image_size=ImageSize.SIZE_720x1280
+            else:
+                image_path_list = await GenImage.t2i_runninghub_krea2(gen_image_params=params, save_dir=save_dir, prefix=prefix, task_type='t2i')
+        case 'frame':
+            # 这里要根据目标宽高比设置，目前指定竖屏
+            params.image_size=ImageSize.SIZE_720x1280
+            if settings.USE_COMFY_IMAGE:
                 params.refer_images = refer_imgs
                 image_path_list = []
                 image_path_list = await GenImage.i2i_local_flux2_klien(gen_image_params=params, save_dir=save_dir, prefix=prefix)
-            case _:
-                raise ValueError(f'not find the img_type {img_type}')
-            
-    else:
-        gen_image = GenImage()
-        image_path_list = await gen_image.gen_image(gen_image_params=params, save_dir=save_dir, prefix=prefix)
+            else:
+                raise Exception('暂不支持非Comfy生图')
+        case _:
+            raise ValueError(f'not find the img_type {img_type}')
     logger.info(f'get image path list: {image_path_list}')
 
     if not image_path_list:
@@ -313,7 +318,7 @@ async def initial_role_images(state: CloneImageState) -> Command[Literal['initia
                 )
                 db.add(clone_image)
 
-        clone_script.clone_progress = 40
+        clone_script.generate_flow_progress = ((IMAGE_BEGIN_PROGRESS + IMAGE_COMPLETE_PROGRESS)//2)
         await db.commit()
                     
         return Command(goto='initial_scene_images')
@@ -380,8 +385,8 @@ async def initial_scene_images(state: CloneImageState):
                 name_comfy=name_comfy
             )
             db.add(clone_image)
-        clone_script.clone_progress = 45
-        clone_script.clone_status = CloneStatus.IMAGE_DONE
+        clone_script.generate_flow_progress = IMAGE_COMPLETE_PROGRESS
+        clone_script.generate_flow_status = GenerateFlowStatus.IMAGE_DONE
         await db.commit()
         return Command(goto='__end__')
     except Exception as e:
@@ -402,9 +407,9 @@ async def process_error(state: CloneImageState):
     retry_max = settings.STORYBOARD_TRY_COUNT
     retry_cnt = state.get('retry_cnt', 0)
     if not state['error'] and retry_cnt > retry_max:
-        await send_fail_status(state['clone_script_id'], '重试次数超过限制')
+        await send_fail_status(state['clone_script_id'], '重试次数超过限制', flow_type='generate')
     else:
-        await send_fail_status(state['clone_script_id'], state['error'])
+        await send_fail_status(state['clone_script_id'], state['error'], flow_type='generate')
     logger.info('process_error')
 
 

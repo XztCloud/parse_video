@@ -31,7 +31,7 @@ class ApiComfy:
         
         logger.info(f"Posting prompt to {self.url}/prompt")
 
-        async with aiohttp.ClientSession() as session:
+        async with aiohttp.ClientSession(trust_env=True) as session:
             target_url = urljoin(self.url, "/prompt")
             
             # 直接传入 json=p，aiohttp 会自动处理编码和 content-type
@@ -120,7 +120,7 @@ class ApiComfy:
         """
         logger.info(f"Posting prompt to {self.url}/prompt")
 
-        async with aiohttp.ClientSession() as session:
+        async with aiohttp.ClientSession(trust_env=True) as session:
             url = urljoin(self.url, f"/history/{prompt_id}")
             logger.info(f"Getting history from {url}")
             async with session.get(url, auth=self.auth) as resp:
@@ -156,7 +156,7 @@ class ApiComfy:
         url = urljoin(self.url, f"/view?{urlencode(params)}")
         logger.info(f"Getting image from {url}")
 
-        async with aiohttp.ClientSession() as session:
+        async with aiohttp.ClientSession(trust_env=True) as session:
             async with session.get(url, auth=self.auth) as resp:
                 logger.debug(f"{resp.status}: {resp.reason}")
                 if resp.status == 200:

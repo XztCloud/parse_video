@@ -3,7 +3,7 @@ export interface ParseHistoryItem {
   title: string;
   duration: string;
   shots: number;
-  status: 'done' | 'processing';
+  status: 'done' | 'processing' | 'failed';
   time: string;
   source: string;
   tag: string;
@@ -26,6 +26,8 @@ export interface CopyHistoryItem {
   cloneStatus?: string;
   /** 用于展示的标题（区别于后端 id） */
   displayTitle?: string;
+  /** 后端 source_type 原始值：CLONE=复刻剧本 / ORIGINAL=原片直转渲染 / NOVEL=小说转剧本 */
+  sourceType?: string;
 }
 
 export interface GenerateHistoryItem {
@@ -51,8 +53,8 @@ export interface ScriptItem {
   info?: string;
   /** 视频ID（解析剧本）或克隆剧本ID（复制剧本） */
   sourceId?: number;
-  /** 来源类型：parse=解析剧本, copy=复制剧本 */
-  sourceType?: 'parse' | 'copy';
+  /** 来源类型：parse=解析剧本, copy=复制剧本, novel=小说转剧本 */
+  sourceType?: 'parse' | 'copy' | 'novel';
 }
 
 /** 标签预设池 — 新解析时从中随机抽取 */

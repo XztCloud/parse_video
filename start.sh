@@ -6,6 +6,10 @@ set -e
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$PROJECT_DIR"
 
+# 自动清理旧进程，防止重复启动
+echo "清理旧进程..."
+bash "$PROJECT_DIR/stop.sh"
+
 # 加载 nvm（前端需要 node/npm，由 nvm 管理）
 export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
 if [ -s "$NVM_DIR/nvm.sh" ]; then

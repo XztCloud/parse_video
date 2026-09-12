@@ -10,7 +10,7 @@ from typing import Literal
 from datetime import datetime, timezone, timedelta
 
 from fastapi import HTTPException
-from sqlalchemy import select, update
+from sqlalchemy import or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -24,24 +24,31 @@ from app.models.script import (
     CloneScriptSegment,
     CloneVideo,
     CloneStatus,
+    GenerateFlowStatus,
     Script,
 )
 from app.models.video import Video
-from app.util import logger
+from app.util import FRAME_BEGIN_PROGRESS, IMAGE_BEGIN_PROGRESS, MERGE_VIDEO_BEGIN_PROGRESS, SEGMENT_BEGIN_PROGRESS, SEGMENT_VIDEO_BEGIN_PROGRESS, VOICE_BEGIN_PROGRESS, get_md5, logger
 
 # 北京时间 UTC+8
 BJ_TZ = timezone(timedelta(hours=8))
+
+# 分镜时间轴校准常量
+SEGMENT_AUDIO_TAIL_PAD = 0.3   # 镜尾留白（秒），避免台词贴边
+SEGMENT_MIN_DURATION = 1.0     # 单镜最短时长（秒），与分镜 LLM 约束 ge=1.0 对齐
+SEGMENT_MAX_DURATION = 15.0    # 单镜最长时长（秒），与 GROUP_MAX_DURATION 对齐
+SEGMENT_CONTINUATION_PAD = 0.5 # 跨镜台词延续段(body/tail)的衔接留白（秒），不计入整句音频
 
 
 # step -> (进入状态, 进度, 前置允许状态列表)
 # 复刻剧本 = plot(1) + segments(2)；渲染 = voice(3) + images(4) + video(6) + merge(7)
 _CLONE_STEP_CONFIG = {
-    2: (CloneStatus.SEGMENTS, 31, [CloneStatus.PLOT_DONE, CloneStatus.SEGMENTS_DONE]),
-    3: (CloneStatus.VOICE, 21, [CloneStatus.PLOT_DONE, CloneStatus.SEGMENTS_DONE, CloneStatus.VOICE_DONE, CloneStatus.FAILED]),
-    4: (CloneStatus.IMAGE, 31, [CloneStatus.SEGMENTS_DONE, CloneStatus.VOICE_DONE, CloneStatus.IMAGE_DONE, CloneStatus.FAILED]),
-    5: (CloneStatus.FRAME, 45, [CloneStatus.IMAGE_DONE, CloneStatus.FRAME_DONE, CloneStatus.FAILED]),
-    6: (CloneStatus.SEGMENT_VIDEO, 60, [CloneStatus.VOICE_DONE, CloneStatus.IMAGE_DONE, CloneStatus.FRAME_DONE, CloneStatus.FAILED]),
-    7: (CloneStatus.MERGE_VIDEO, 95, [CloneStatus.IMAGE_DONE, CloneStatus.FRAME_DONE, CloneStatus.SEGMENT_VIDEO_DONE, CloneStatus.FAILED]),
+    2: (CloneStatus.SEGMENTS, SEGMENT_BEGIN_PROGRESS, [CloneStatus.PLOT_DONE, CloneStatus.SEGMENTS_DONE]),
+    3: (GenerateFlowStatus.VOICE, VOICE_BEGIN_PROGRESS, [CloneStatus.SEGMENTS_DONE, GenerateFlowStatus.VOICE_DONE, GenerateFlowStatus.FAILED]),
+    4: (GenerateFlowStatus.IMAGE, IMAGE_BEGIN_PROGRESS, [CloneStatus.SEGMENTS_DONE, GenerateFlowStatus.VOICE_DONE, GenerateFlowStatus.IMAGE_DONE, GenerateFlowStatus.FAILED]),
+    5: (GenerateFlowStatus.FRAME, FRAME_BEGIN_PROGRESS, [GenerateFlowStatus.IMAGE_DONE, GenerateFlowStatus.FRAME_DONE, GenerateFlowStatus.FAILED]),
+    6: (GenerateFlowStatus.SEGMENT_VIDEO, SEGMENT_VIDEO_BEGIN_PROGRESS, [GenerateFlowStatus.IMAGE_DONE, GenerateFlowStatus.FRAME_DONE, GenerateFlowStatus.SEGMENT_VIDEO_DONE, GenerateFlowStatus.SEGMENT_VIDEO, GenerateFlowStatus.FAILED]),
+    7: (GenerateFlowStatus.MERGE_VIDEO, MERGE_VIDEO_BEGIN_PROGRESS, [GenerateFlowStatus.SEGMENT_VIDEO_DONE, GenerateFlowStatus.SEGMENT_VIDEO, GenerateFlowStatus.MERGE_VIDEO_DONE, GenerateFlowStatus.FAILED]),
 }
 
 
@@ -132,18 +139,44 @@ async def advance_clone_step(
     new_status, new_progress, allowed_statuses = config
 
     logger.info(f'new_status:{new_status}, new_progress:{new_progress}, allowed_statuses:{allowed_statuses}')
-    result = await db.execute(
-        update(CloneScript)
-        .where(
-            CloneScript.id == clone_script_id,
-            CloneScript.clone_status.in_(allowed_statuses),
+
+    # 按枚举类型拆分 allowed_statuses，避免跨枚举值传入错误的 PostgreSQL enum 列
+    clone_allowed = [s for s in allowed_statuses if isinstance(s, CloneStatus)]
+    generate_allowed = [s for s in allowed_statuses if isinstance(s, GenerateFlowStatus)]
+
+    if step == 2:
+        result = await db.execute(
+            update(CloneScript)
+            .where(
+                CloneScript.id == clone_script_id,
+                CloneScript.clone_status.in_(clone_allowed),
+            )
+            .values({
+                "clone_status": new_status,
+                "clone_progress": new_progress,
+                "clone_error_message": None,
+            })
         )
-        .values({
-            "clone_status": new_status,
-            "clone_progress": new_progress,
-            "clone_error_message": None,
-        })
-    )
+    else:
+        # 动态构建 OR 条件：只包含有合法值的枚举列
+        or_conditions = []
+        if generate_allowed:
+            or_conditions.append(CloneScript.generate_flow_status.in_(generate_allowed))
+        if clone_allowed:
+            or_conditions.append(CloneScript.clone_status.in_(clone_allowed))
+
+        if not or_conditions:
+            raise HTTPException(status_code=400, detail="无可匹配的状态条件")
+
+        result = await db.execute(
+            update(CloneScript)
+            .where(CloneScript.id == clone_script_id, or_(*or_conditions))
+            .values({
+                "generate_flow_status": new_status,
+                "generate_flow_progress": new_progress,
+                "clone_error_message": None,
+            })
+        )
     await db.commit()
     if result.rowcount == 0:
         raise HTTPException(status_code=404, detail="任务已在运行或状态不正确")
@@ -174,16 +207,23 @@ def clone_status_value(status) -> str:
     return status.value if status else CloneStatus.PENDING.value
 
 
+def generate_flow_status_value(status) -> str:
+    return status.value if status else GenerateFlowStatus.PENDING.value
+
+
 async def list_all_clone_scripts(
     db: AsyncSession,
     offset: int = 0,
     limit: int = 50,
 ) -> list[dict]:
-    """列出所有复刻剧本，附带原视频信息。"""
+    """列出所有复刻剧本，附带原视频信息（含小说来源）。"""
+    from app.models.novel import Novel
+
     result = await db.execute(
-        select(CloneScript, Script, Video)
-        .join(Script, CloneScript.script_id == Script.id)
-        .join(Video, Script.video_id == Video.id)
+        select(CloneScript, Script, Video, Novel.title.label("novel_title"))
+        .outerjoin(Script, CloneScript.script_id == Script.id)
+        .outerjoin(Video, Script.video_id == Video.id)
+        .outerjoin(Novel, CloneScript.novel_id == Novel.id)
         .order_by(CloneScript.created_at.desc())
         .offset(offset)
         .limit(limit)
@@ -193,17 +233,19 @@ async def list_all_clone_scripts(
         {
             "id": cs.id,
             "script_id": cs.script_id,
-            "video_id": v.id,
-            "video_title": v.title,
-            "video_category": v.category,
+            "video_id": v.id if v else None,
+            "video_title": v.title if v else (novel_title or "未命名小说"),
+            "video_category": v.category if v else None,
             "clone_theme": cs.clone_theme,
             "clone_status": clone_status_value(cs.clone_status),
             "clone_progress": cs.clone_progress or 0,
+            "generate_flow_status": generate_flow_status_value(cs.generate_flow_status),
+            "generate_flow_progress": cs.generate_flow_progress or 0,
             "error_message": cs.clone_error_message,
             "source_type": cs.source_type,
             "created_at": cs.created_at.isoformat() if cs.created_at else None,
         }
-        for cs, s, v in rows
+        for cs, s, v, novel_title in rows
     ]
 
 
@@ -227,14 +269,16 @@ async def get_clone_script_detail(db: AsyncSession, clone_script_id: int) -> dic
         clone_script.clone_status == CloneStatus.FAILED
         and clone_script.clone_progress >= 20
     ):
-        clone_parse_file_path = clone_script.clone_parse_file_path
-        if clone_parse_file_path is None:
-            raise HTTPException(status_code=404, detail="复刻视频脚本未生成")
-        clone_parse_file = Path(clone_parse_file_path)
-        if not clone_parse_file.is_file():
-            raise HTTPException(status_code=404, detail="复刻视频脚本未生成")
-        with open(clone_parse_file_path, "r", encoding="utf-8") as f:
-            clone_script_content = f.read()
+        clone_script_content = ''
+        logger.info(f'clone_parse_file_path:{clone_script.clone_parse_file_path}')
+        # clone_parse_file_path = clone_script.clone_parse_file_path
+        # if clone_parse_file_path is None:
+        #     raise HTTPException(status_code=404, detail="复刻视频脚本未生成")
+        # clone_parse_file = Path(clone_parse_file_path)
+        # if not clone_parse_file.is_file():
+        #     raise HTTPException(status_code=404, detail="复刻视频脚本未生成")
+        # with open(clone_parse_file_path, "r", encoding="utf-8") as f:
+        #     clone_script_content = f.read()
 
         # 一次性查询各资源（避免循环内逐条查询）
         result = await db.execute(
@@ -309,6 +353,11 @@ async def get_clone_script_detail(db: AsyncSession, clone_script_id: int) -> dic
     return {
         "id": clone_script_id,
         "source_type": clone_script.source_type,
+        "clone_status": clone_status_value(clone_script.clone_status),
+        "clone_progress": clone_script.clone_progress or 0,
+        "generate_flow_status": generate_flow_status_value(clone_script.generate_flow_status),
+        "generate_flow_progress": clone_script.generate_flow_progress or 0,
+        "error_message": clone_script.clone_error_message,
         "content": clone_script_content,
         "clone_parse_pointer": clone_script.clone_parse_pointer,
         "clone_parse_script": clone_script.clone_parse_script,
@@ -403,3 +452,102 @@ async def get_video_by_category(
         obj = result.scalar_one_or_none()
         return obj, (obj.file_path if obj else None)
     raise HTTPException(status_code=404, detail="check category in [segment_video, merged]")
+
+
+async def sync_segment_timeline(clone_script_id: int, db: AsyncSession | None = None) -> int:
+    """配音完成后，用真实音频时长校准分镜时间轴（音画对齐）。
+
+    分镜落库时的 start_time/end_time 取自 LLM 预估的 duration_budget；
+    配音阶段生成的 CloneVoice 才是音轨的真实内容。这里把每个分镜时长重算为
+    "镜内真实音频总长 + 镜尾留白"，并重新累加 offset，保证后续生图 / 分镜视频 /
+    合并拿到的分镜时长与真实音轨一致——避免台词被截断或尾部空镜。
+
+    规则：
+    - 含有真实配音的分镜：时长 = 镜内真实音频总长 + 镜尾留白，并钳制在 [1, 15]s。
+    - 跨镜长台词（lines_flag 为 body/tail 的延续段）不重复计入整句音频，
+      只给衔接留白；整句音频只在该镜的 head/all 段计入一次，避免成片台词重读。
+    - 无配音可锚定的分镜：保持原有时长，仅随上游重排。
+    - 幂等：可安全地在配音完成后、推进生图前重复调用（重算结果不变）。
+
+    Returns:
+        时长发生变更的分镜数量（0 表示无需校准）。
+    """
+    owns_db = db is None
+    if owns_db:
+        # 延迟导入 process_loop：避免 app.tasks.__init__ -> parse_video -> clone -> clone_voice -> clone_service 的循环导入
+        from app.tasks.process_loop_manager import process_loop
+        db = process_loop.AsyncSessionLocal()
+    try:
+        # 1. 加载该脚本真实配音时长，(role_name, voice_type, text_md5) 精准匹配
+        result = await db.execute(
+            select(CloneVoice).where(CloneVoice.script_id == clone_script_id)
+        )
+        voices = result.scalars().all()
+        if not voices:
+            logger.info(f'sync_segment_timeline: script_id={clone_script_id} 无配音记录，跳过校准')
+            return 0
+
+        voice_duration = {}
+        for voice in voices:
+            voice_duration[(voice.role_name, voice.voice_type, voice.text_md5)] = voice.duration
+
+        # 2. 按时间顺序加载分镜
+        result = await db.execute(
+            select(CloneScriptSegment)
+            .where(CloneScriptSegment.script_id == clone_script_id)
+            .order_by(CloneScriptSegment.start_time)
+        )
+        segments = list(result.scalars().all())
+        if not segments:
+            return 0
+
+        # 3. 逐镜重算时长，并重新累加时间轴（无音频的分镜沿用原时长参与排布）
+        offset = 0.0
+        changed = 0
+        for seg in segments:
+            audio_sum = 0.0
+            matched = False
+            for line in (seg.dialogue or []):
+                search_md5 = get_md5(line.get('lines') or '')
+                dur = voice_duration.get(
+                    (line.get('role_name'), line.get('audio_style'), search_md5)
+                )
+                if dur is None:
+                    # 该行无配音：沿用分镜里给它占的时间槽（静音）
+                    audio_sum += max(0.0, (line.get('end_offset') or 0) - (line.get('start_offset') or 0))
+                    continue
+                matched = True
+                if line.get('lines_flag') in ('body', 'tail'):
+                    # 跨镜台词的延续段：整句音频只在 head/all 计入一次，这里仅留衔接
+                    audio_sum += SEGMENT_CONTINUATION_PAD
+                else:
+                    # all / head / 未知：在该镜完整计入真实音频
+                    audio_sum += dur
+
+            if matched:
+                new_dur = min(SEGMENT_MAX_DURATION, max(SEGMENT_MIN_DURATION, audio_sum + SEGMENT_AUDIO_TAIL_PAD))
+            else:
+                new_dur = seg.end_time - seg.start_time
+                if new_dur <= 0:
+                    new_dur = SEGMENT_MIN_DURATION
+
+            old_start, old_end = seg.start_time, seg.end_time
+            seg.start_time = round(offset, 2)
+            seg.end_time = round(offset + new_dur, 2)
+            offset += new_dur
+            if abs(old_start - seg.start_time) > 0.001 or abs(old_end - seg.end_time) > 0.001:
+                changed += 1
+
+        await db.commit()
+        logger.info(
+            f'sync_segment_timeline: script_id={clone_script_id} 校准 {len(segments)} 个分镜, '
+            f'改动 {changed} 个, 校准后总时长 {round(offset, 2)}s'
+        )
+        return changed
+    except Exception:
+        await db.rollback()
+        logger.exception(f'sync_segment_timeline 校准分镜时间轴失败: clone_script_id={clone_script_id}')
+        raise
+    finally:
+        if owns_db:
+            await db.close()

@@ -11,13 +11,13 @@ import pandas as pd
 from pydantic import BaseModel, ValidationError
 from langchain_core.exceptions import OutputParserException
 from sqlalchemy import delete, select
-from app.models.script import CloneStatus
+from app.models.script import CloneStatus, GenerateFlowStatus
 
 from app.tasks.process_loop_manager import process_loop
 from app.models.script import CloneScript, Script
 from app.models.video import Video
 from app.services.llm import REDUCE_LINES_PROMPT, CloneAnalysis, CloneAnalysisFocus, CloneAnalysisPlot, ReduceLines, ainvoke_structured_robust, reduce_lines_model
-from app.util import calculate_duration_units, make_dir
+from app.util import PLOT_BEGIN_PROGRESS, PLOT_COMPLETE_PROGRESS, calculate_duration_units, make_dir
 from app.config import settings
 from celery.utils.log import get_task_logger
 
@@ -48,7 +48,7 @@ async def get_ori_context(state: ClonePlotState) -> Command[Literal['process_err
                 raise Exception('原始脚本不存在，请先解析再复刻')
             
             
-            clone_script.clone_progress = 5
+            clone_script.clone_progress = PLOT_BEGIN_PROGRESS
             await db.commit()
             ori_parameters = VideScript(
                 analysis_focus=script.parse_pointer,
@@ -375,7 +375,7 @@ async def creative_plot(state: ClonePlotState) -> Command[Literal['process_error
             clone_script.clone_parse_file_path = md_path
             clone_script.clone_parse_pointer = focus_data
             clone_script.clone_parse_script = plot_data
-            clone_script.clone_progress = 20
+            clone_script.clone_progress = PLOT_COMPLETE_PROGRESS
             clone_script.clone_status = CloneStatus.PLOT_DONE
             await db.commit() 
 
@@ -394,7 +394,7 @@ async def creative_plot(state: ClonePlotState) -> Command[Literal['process_error
 async def process_error(state: ClonePlotState):
     await send_fail_status(state['clone_script_id'], state['error'])
 
-async def send_fail_status(clone_script_id: int, error: str):
+async def send_fail_status(clone_script_id: int, error: str, flow_type: Literal['clone', 'generate']='clone'):
     async with process_loop.AsyncSessionLocal() as db:
         try:
             logger.info(f'occur error {error}')
@@ -402,7 +402,10 @@ async def send_fail_status(clone_script_id: int, error: str):
             clone_script = result.scalar_one_or_none()
             if not clone_script:
                 logger.info(f'clone_script is none.')
-            clone_script.clone_status = CloneStatus.FAILED
+            if flow_type == 'clone':
+                clone_script.clone_status = CloneStatus.FAILED
+            else:
+                clone_script.generate_flow_status = GenerateFlowStatus.FAILED
             clone_script.clone_error_message = error
             await db.commit()
         except Exception as e:
