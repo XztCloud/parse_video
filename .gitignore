@@ -55,4 +55,7 @@ build/
 # 抖音 cookies（含登录凭据，切勿提交）
 *cookies.txt
 
+# 本地备份文件（如 tts_model_xxx.pkl.bak_20260707_150159）
+*.bak_*
+
 tmp_*
