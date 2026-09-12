@@ -3,6 +3,7 @@ import asyncio
 import enum
 import functools
 import hashlib
+import json
 import logging
 import os
 from pathlib import Path
@@ -10,7 +11,7 @@ import re
 import shutil
 import threading
 import time
-from typing import Optional
+from typing import Literal, Optional
 from PIL import Image
 import ffmpeg
 import httpx
@@ -47,6 +48,36 @@ MERGE_VIDEO_BEGIN_PROGRESS = 91
 MERGE_VIDEO_COMPLETE_PROGRESS = 100
 
 logger = logging.getLogger("parse_video")
+
+
+def normalize_requirements(clone_requirements) -> dict:
+    """把 clone_requirements 规范成 dict。
+
+    该列为 JSON，可能是 dict，也可能是旧数据的双编码 str，统一兜底为空 dict。
+    """
+    requirements = clone_requirements
+    if isinstance(requirements, str):
+        try:
+            requirements = json.loads(requirements)
+        except (ValueError, TypeError):
+            requirements = None
+    return requirements if isinstance(requirements, dict) else {}
+
+
+def resolve_generation_method(
+    clone_requirements,
+    env_flag: bool,
+) -> Literal['local', 'cloud']:
+    """解析本次生成的执行方式：本地 comfy 还是云端 API。
+
+    优先取 clone_requirements 中用户选择（generation_method: 'local'/'cloud'）；
+    缺省或非法时回退到环境开关（USE_COMFY_VIDEO / USE_COMFY_IMAGE）。
+    """
+    method = normalize_requirements(clone_requirements).get('generation_method')
+    if method in ('local', 'cloud'):
+        return method
+    return 'local' if env_flag else 'cloud'
+
 
 class REGENERATE_TYPE(enum.Enum):
     """重新生成分类 """

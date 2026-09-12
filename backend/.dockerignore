@@ -1,0 +1,21 @@
+# 运行时产物：容器里通过 bind mount 提供（见 docker-compose.yml），不需要打进镜像
+uploads/
+LOGS/
+logs/
+videodl_outputs/
+
+# Python 缓存与本地虚拟环境
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+Parse_Video.egg-info/
+
+# 日志与本地备份文件
+*.log
+*.bak_*
+
+# 编辑器配置
+.vscode/
+.idea/

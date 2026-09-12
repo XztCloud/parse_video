@@ -23,6 +23,14 @@ interface DetailModalProps {
   } | null;
   scriptContent?: any;
   parseScript?: any;
+  /** 点击「用此剧本生成视频」：跳转到生成视频页并预选当前剧本。解析来源不展示该按钮 */
+  onGenerate?: () => void;
+  /** 是否允许「用此剧本生成视频」（仅已完成剧本为 true） */
+  canGenerate?: boolean;
+  /** 是否允许导出（剧本内容 md / 分镜脚本 json） */
+  canExport?: boolean;
+  /** 点击导出：kind=script 导出剧本内容 markdown，storyboard 导出分镜脚本 json */
+  onExport?: (kind: 'script' | 'storyboard') => void;
 }
 
 const storyboardData = [
@@ -97,6 +105,10 @@ export default function DetailModal({
   parsePointer,
   scriptContent,
   parseScript,
+  onGenerate,
+  canGenerate = false,
+  canExport = false,
+  onExport,
 }: DetailModalProps) {
   const [activeTab, setActiveTab] = useState<'script' | 'storyboard' | 'info'>('script');
 
@@ -109,7 +121,7 @@ export default function DetailModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="bg-white rounded-3xl shadow-2xl w-full max-w-4xl max-h-[85vh] overflow-hidden modal-in">
+      <div className="bg-white rounded-3xl shadow-2xl w-full max-w-4xl max-h-[85vh] flex flex-col overflow-hidden modal-in">
         {/* 模态框头部 */}
         <div className="p-6 border-b border-slate-200 flex items-center justify-between bg-gradient-to-r from-slate-50 to-white">
           <div className="flex items-center gap-3">
@@ -130,42 +142,50 @@ export default function DetailModal({
           </button>
         </div>
 
-        {/* 模态框内容 */}
-        <div className="overflow-y-auto max-h-[calc(85vh-80px)]">
-          {/* Tab 切换 */}
-          <div className="px-6 pt-6 border-b border-slate-200 flex gap-6">
+        {/* Tab 切换（固定在顶部，不随内容滚动） */}
+        <div className="px-6 pt-6 border-b border-slate-200 flex items-end gap-6">
+          <button
+            onClick={() => setActiveTab('script')}
+            className={`pb-3 border-b-2 font-medium text-sm ${
+              activeTab === 'script'
+                ? 'border-indigo-500 text-indigo-600'
+                : 'border-transparent text-slate-500 hover:text-slate-700'
+            }`}
+          >
+            📝 剧本内容
+          </button>
+          <button
+            onClick={() => setActiveTab('storyboard')}
+            className={`pb-3 border-b-2 font-medium text-sm ${
+              activeTab === 'storyboard'
+                ? 'border-indigo-500 text-indigo-600'
+                : 'border-transparent text-slate-500 hover:text-slate-700'
+            }`}
+          >
+            🎬 分镜脚本
+          </button>
+          <button
+            onClick={() => setActiveTab('info')}
+            className={`pb-3 border-b-2 font-medium text-sm ${
+              activeTab === 'info'
+                ? 'border-indigo-500 text-indigo-600'
+                : 'border-transparent text-slate-500 hover:text-slate-700'
+            }`}
+          >
+            ℹ️ 任务信息
+          </button>
+          {canExport && onExport && (activeTab === 'script' || activeTab === 'storyboard') && (
             <button
-              onClick={() => setActiveTab('script')}
-              className={`pb-3 border-b-2 font-medium text-sm ${
-                activeTab === 'script'
-                  ? 'border-indigo-500 text-indigo-600'
-                  : 'border-transparent text-slate-500 hover:text-slate-700'
-              }`}
+              onClick={() => onExport(activeTab)}
+              className="ml-auto mb-3 px-4 py-2 bg-white border border-slate-300 text-slate-600 hover:bg-slate-100 rounded-xl text-sm font-medium transition-colors"
             >
-              📝 剧本内容
+              导出{activeTab === 'script' ? '剧本内容 MD' : '分镜脚本 JSON'}
             </button>
-            <button
-              onClick={() => setActiveTab('storyboard')}
-              className={`pb-3 border-b-2 font-medium text-sm ${
-                activeTab === 'storyboard'
-                  ? 'border-indigo-500 text-indigo-600'
-                  : 'border-transparent text-slate-500 hover:text-slate-700'
-              }`}
-            >
-              🎬 分镜脚本
-            </button>
-            <button
-              onClick={() => setActiveTab('info')}
-              className={`pb-3 border-b-2 font-medium text-sm ${
-                activeTab === 'info'
-                  ? 'border-indigo-500 text-indigo-600'
-                  : 'border-transparent text-slate-500 hover:text-slate-700'
-              }`}
-            >
-              ℹ️ 任务信息
-            </button>
-          </div>
+          )}
+        </div>
 
+        {/* 模态框内容（仅此区域滚动） */}
+        <div className="flex-1 min-h-0 overflow-y-auto">
           <div className="p-6 pb-16">
             {/* 剧本内容 Tab */}
             {activeTab === 'script' && (
@@ -413,10 +433,16 @@ export default function DetailModal({
               const createdTime = createdAt
                 ? createdAt.replace('T', ' ').slice(0, 16)
                 : '—';
-              // 视频时长：copy 类型从分镜总时长计算
-              const totalDuration = hasRealData
-                ? segments!.reduce((sum, s) => sum + (s.end_time - s.start_time), 0)
+              // 视频时长：优先用后端记录的真实时长（秒）；
+              // 拿不到时（复制/小说来源）再用分镜时长累加——注意解析来源的分镜时间戳单位是毫秒，
+              // 累加前必须换算成秒，否则 38 秒会被显示成 10 分 33 秒。
+              const segmentsSeconds = hasRealData
+                ? segments!.reduce((sum, s) => {
+                    const d = (s.end_time ?? 0) - (s.start_time ?? 0);
+                    return sum + (d < 1000 ? d : d / 1000);
+                  }, 0)
                 : null;
+              const totalDuration = (duration != null && duration > 0) ? duration : segmentsSeconds;
               return (
                 <div className="grid grid-cols-2 gap-4">
                   <div className="p-4 bg-slate-50 rounded-xl">
@@ -430,9 +456,7 @@ export default function DetailModal({
                   <div className="p-4 bg-slate-50 rounded-xl">
                     <p className="text-xs text-slate-500 mb-1">视频时长</p>
                     <p className="text-sm text-slate-800">
-                      {totalDuration !== null
-                        ? formatDuration(totalDuration)
-                        : (duration ? formatDuration(duration) : '—')}
+                      {totalDuration !== null ? formatDuration(totalDuration) : '—'}
                     </p>
                   </div>
                   <div className="p-4 bg-slate-50 rounded-xl">
@@ -458,9 +482,11 @@ export default function DetailModal({
           <button onClick={onClose} className="px-5 py-2.5 text-slate-600 hover:bg-slate-200 rounded-xl transition-colors text-sm font-medium">
             关闭
           </button>
-          <button className="px-5 py-2.5 bg-gradient-to-r from-indigo-500 to-purple-500 text-white rounded-xl text-sm font-medium shadow-md hover:shadow-lg transition-all">
-            用此剧本生成视频 →
-          </button>
+          {type !== 'parse' && canGenerate && onGenerate && (
+            <button onClick={onGenerate} className="px-5 py-2.5 bg-gradient-to-r from-indigo-500 to-purple-500 text-white rounded-xl text-sm font-medium shadow-md hover:shadow-lg transition-all">
+              用此剧本生成视频 →
+            </button>
+          )}
         </div>
       </div>
     </div>

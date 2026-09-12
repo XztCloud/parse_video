@@ -1,12 +1,15 @@
 "use client";
 
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { ParseHistoryItem, getRandomTagPreset, tagPresets } from "./data";
 import { uploadVideo, parseDouyin, getVideoStatus } from "@/lib/api";
 
 interface ParseVideoTabProps {
   history: ParseHistoryItem[];
-  onHistoryChange: (history: ParseHistoryItem[]) => void;
+  /** 支持直接传新数组，或传 React 风格的更新函数 */
+  onHistoryChange: (
+    next: ParseHistoryItem[] | ((prev: ParseHistoryItem[]) => ParseHistoryItem[])
+  ) => void;
   onViewDetail: (item: ParseHistoryItem) => void;
   onRefresh?: () => void;
 }
@@ -31,6 +34,8 @@ export default function ParseVideoTab({ history, onHistoryChange, onViewDetail, 
   const [isDragOver, setIsDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pollRef = useRef<NodeJS.Timeout | null>(null);
+  // 已发起过轮询的视频 id：避免「恢复轮询」的 effect 与上传时发起的轮询重复触发
+  const polledIdsRef = useRef<Set<number>>(new Set());
 
   /** 轮询视频解析状态 */
   const pollVideoStatus = useCallback((videoId: number, fileName: string) => {
@@ -42,13 +47,14 @@ export default function ParseVideoTab({ history, onHistoryChange, onViewDetail, 
       { text: '整理最终输出...', pct: 95 },
     ];
     let stage = 0;
+    polledIdsRef.current.add(videoId);
 
     if (pollRef.current) clearInterval(pollRef.current);
     pollRef.current = setInterval(async () => {
       try {
         const data = await getVideoStatus(videoId);
 
-        if (data.status === 'done') {
+        if (data.status === 'done' || (data.progress || 0) >= 100) {
           if (pollRef.current) clearInterval(pollRef.current);
           setProgressPercent(100);
           setProgressTitle('解析完成！');
@@ -113,11 +119,24 @@ export default function ParseVideoTab({ history, onHistoryChange, onViewDetail, 
           setProgressPercent(Math.min(backendPct, 99));
           setProgressText('最后处理中...');
         }
+        // 同步刷新历史记录中的进度，否则列表会一直停在旧值、必须手动刷新才更新
+        onHistoryChange(prev => prev.map(h =>
+          h.id === videoId ? { ...h, progress: Math.min(backendPct, 99), status: 'processing' } : h
+        ));
       } catch {
         // 轮询失败时静默，继续等待
       }
     }, 3000);
   }, [history, onHistoryChange, onRefresh]);
+
+  // 页面加载/刷新后，如果历史里还有「解析中」的视频，自动恢复轮询：
+  // 否则进度会一直停在旧值（如 95%），必须手动刷新才能看到完成。
+  useEffect(() => {
+    const processing = history.find(h => h.status === 'processing');
+    if (processing && !polledIdsRef.current.has(processing.id)) {
+      pollVideoStatus(processing.id, processing.title);
+    }
+  }, [history, pollVideoStatus]);
 
   /** 上传文件解析 */
   const handleUpload = useCallback(async (file: File) => {

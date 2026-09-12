@@ -276,9 +276,10 @@ async def _generate_markdown_file(
 ) -> None:
     """生成markdown格式的剧本文件"""
     try:
-        # 构建输出目录
+        # 构建输出目录：该目录存放同一部小说所有章节的 markdown，属共享目录，
+        # 必须 re_create=False，否则每生成一章都会 rmtree 掉前面章节已写好的文件。
         output_dir = Path(settings.UPLOAD_DIR) / "novels" / str(clone_script.novel_id)
-        make_dir(str(output_dir))
+        make_dir(str(output_dir), re_create=False)
 
         # 构建文件名
         filename = f"script_{clone_script.id}_ch{chunk.chapter_index}_s{chunk.scene_index}.md"

@@ -5,12 +5,13 @@ import aiofiles
 from fastapi import APIRouter, Request, UploadFile, File, HTTPException, status
 from pydantic import BaseModel, field_validator
 
-from app.api.deps import AsyncSessionDep
+from app.api.deps import AsyncSessionDep, CurrentUser
 from ...models.video import VideoSource
 from ...config import settings
 from ...tasks.parse_video import parse_video_task
 from ...services.douyin_parser import DouyinParser
-from ...services.video_service import create_video_record, video_to_dict, get_video_by_id, list_videos as list_video_records
+from ...services.video_service import create_video_record, video_to_dict, list_videos as list_video_records
+from ...services.ownership import get_owned_video
 from app.util import MAX_DURATION_SECONDS, MAX_FILE_SIZE, get_video_duration_ffprobe, logger, is_video_file
 from app.api.deps import limiter
 
@@ -49,7 +50,7 @@ class DouyinRequest(BaseModel):
 
 @router.post("/upload")
 @limiter.limit("1/5second")
-async def upload_video(request: Request, db: AsyncSessionDep, file: UploadFile = File(...)):
+async def upload_video(request: Request, db: AsyncSessionDep, current_user: CurrentUser, file: UploadFile = File(...)):
 
     # 文件扩展名校验
     if not file.filename.lower().endswith((".mp4", ".mov", ".avi", ".mkv")):
@@ -95,7 +96,7 @@ async def upload_video(request: Request, db: AsyncSessionDep, file: UploadFile =
             )
 
         video = await create_video_record(
-            db, title=file.filename, file_path=abs_file_path
+            db, user_id=current_user.id, title=file.filename, file_path=abs_file_path
         )
         parse_video_task.delay(video.id)
         return video_to_dict(video)
@@ -115,13 +116,14 @@ async def upload_video(request: Request, db: AsyncSessionDep, file: UploadFile =
 
 @router.post("/douyin")
 @limiter.limit("1/5second")
-async def parse_douyin(request: Request, request_data: DouyinRequest, db: AsyncSessionDep):
+async def parse_douyin(request: Request, request_data: DouyinRequest, db: AsyncSessionDep, current_user: CurrentUser):
     try:
         logger.info("parse douyin url: %s", request_data.url)
         file_path, title = await asyncio.to_thread(DouyinParser.download_video, request_data.url)
 
         video = await create_video_record(
             db,
+            user_id=current_user.id,
             title=title,
             file_path=file_path,
             source_type=VideoSource.DOUYIN,
@@ -134,21 +136,24 @@ async def parse_douyin(request: Request, request_data: DouyinRequest, db: AsyncS
         raise HTTPException(status_code=400, detail=f"抖音链接解析失败: {str(e)}")
 
 @router.get("")
-async def list_videos(db: AsyncSessionDep, skip: int = 0, limit: int = 20):
+async def list_videos(db: AsyncSessionDep, current_user: CurrentUser, skip: int = 0, limit: int = 20):
     try:
-        videos = await list_video_records(db, skip=skip, limit=limit)
+        videos = await list_video_records(db, current_user, skip=skip, limit=limit)
         return [video_to_dict(v) for v in videos]
     except Exception as e:
         logger.exception(f'list_videos failed. ')
         raise HTTPException(status_code=400, detail=f"获取视频列表失败: {str(e)}")
 
 @router.get("/{video_id}/status")
-async def get_video_status(video_id: int, db: AsyncSessionDep):
+async def get_video_status(video_id: int, db: AsyncSessionDep, current_user: CurrentUser):
     try:
-        video = await get_video_by_id(db, video_id)
+        # 归属校验：普通用户只能查看自己的视频（无权按不存在处理）
+        video = await get_owned_video(db, video_id, current_user)
         if not video:
             raise HTTPException(status_code=404, detail="视频不存在")
         return video_to_dict(video)
+    except HTTPException:
+        raise
     except Exception as e:
         logger.exception(f'get_video_status failed. ')
         raise HTTPException(status_code=400, detail=f"获取视频{video_id}状态失败: {str(e)}")

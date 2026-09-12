@@ -1,6 +1,7 @@
 from typing import List
 
 from sqlalchemy import ARRAY, Column, ForeignKey, Integer, String, Text, DateTime
+from sqlalchemy.dialects.postgresql import UUID
 from ..database import Base
 from datetime import datetime
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -17,6 +18,13 @@ class Novel(Base):
     status = Column(String(32), nullable=False, default="PENDING", comment="PENDING/PROCESSING/DONE/FAILED")
     error_message = Column(Text, nullable=True)
     progress = Column(Integer, default=0, comment="处理进度 0-100")
+    user_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+        comment="归属用户；删除用户时级联删除其小说与剧本章节",
+    )
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

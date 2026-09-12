@@ -21,7 +21,7 @@ from app.services.clone_plot import send_fail_status
 from app.services.gen_image import GenImage, GenImageParams, ImageSize, ReferImageInfo
 from app.services.llm import SCENE_GENERATE_PROMPT, CharacterManifest, CloneAnalysis, SceneManifest, SegmentRoleView, scene_generate_model, ainvoke_structured_robust
 from app.config import settings
-from app.util import IMAGE_BEGIN_PROGRESS, IMAGE_COMPLETE_PROGRESS, ImageRegenerateInput, async_retry_error, get_image_info, make_dir
+from app.util import IMAGE_BEGIN_PROGRESS, IMAGE_COMPLETE_PROGRESS, ImageRegenerateInput, async_retry_error, get_image_info, make_dir, resolve_generation_method
 from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = get_task_logger(__name__)
@@ -211,16 +211,20 @@ async def abstract_scene_info(state: CloneImageState):
             goto="process_error"
         )
         
-async def generate_image(prompt: str, save_dir: str|Path, prefix:str,  img_type:Literal['role', 'scene', 'frame'], seed:int=None, refer_imgs: list[ReferImageInfo]=None) -> tuple[str|list, int]:
+async def generate_image(prompt: str, save_dir: str|Path, prefix:str,  img_type:Literal['role', 'scene', 'frame'], seed:int=None, refer_imgs: list[ReferImageInfo]=None, generation_method: Literal['local', 'cloud'] | None = None) -> tuple[str|list, int]:
     params = GenImageParams(
         prompt=prompt,
         image_size=ImageSize.SIZE_1024x1024,
         seed=seed
     )
-    
+
+    # 生成方式：优先用调用方解析出的用户选择，缺省回退环境开关。
+    # frame 首帧仍按环境开关（云端不支持），不参与本开关。
+    use_local = (generation_method == 'local') if generation_method else settings.USE_COMFY_IMAGE
+
     match img_type:
         case 'role':
-            if settings.USE_COMFY_IMAGE:
+            if use_local:
                 # 旧版 flux2-klien
                 # params.image_size=ImageSize.SIZE_512x640
                 # image_path_list = await GenImage.t2i_local_flux2_klien(gen_image_params=params, save_dir=save_dir, prefix=prefix)
@@ -230,7 +234,7 @@ async def generate_image(prompt: str, save_dir: str|Path, prefix:str,  img_type:
                 image_path_list = await GenImage.t2i_runninghub_krea2(gen_image_params=params, save_dir=save_dir, prefix=prefix, task_type='four_view')
         case 'scene':
             params.image_size=ImageSize.SIZE_1280x720
-            if settings.USE_COMFY_IMAGE:
+            if use_local:
                 # image_path_list = await GenImage.t2i_local_flux2_klien(gen_image_params=params, save_dir=save_dir, prefix=prefix)
                 image_path_list = await GenImage.t2i_local_krea2(gen_image_params=params, save_dir=save_dir, prefix=prefix)
             else:
@@ -299,7 +303,8 @@ async def initial_role_images(state: CloneImageState) -> Command[Literal['initia
                     prompt=character.visual_anchor_prompt, 
                     save_dir=save_dir, 
                     prefix=character.role_name,  
-                    img_type='role'
+                    img_type='role',
+                    generation_method=resolve_generation_method(clone_script.clone_requirements, settings.USE_COMFY_IMAGE),
                 )
                 image_info = get_image_info(image_path)
                 clone_image = CloneRoleImage(
@@ -368,7 +373,8 @@ async def initial_scene_images(state: CloneImageState):
                 prompt=scene_info.scene_prompt, 
                 save_dir=save_dir, 
                 prefix=scene_info.scene_name,  
-                img_type='scene'
+                img_type='scene',
+                generation_method=resolve_generation_method(clone_script.clone_requirements, settings.USE_COMFY_IMAGE),
             )
             image_info = get_image_info(image_path)
             clone_image = CloneSceneImage(

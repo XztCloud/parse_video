@@ -86,6 +86,17 @@ function LoginForm() {
           {loading ? '正在登录...' : '登 录'}
         </button>
       </form>
+
+      <div className="text-center text-sm text-gray-600">
+        还没有账号？
+        <button
+          type="button"
+          onClick={() => router.push('/register')}
+          className="ml-1 font-semibold text-blue-600 hover:text-blue-700"
+        >
+          注册账号
+        </button>
+      </div>
     </div>
   );
 }

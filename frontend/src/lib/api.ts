@@ -122,6 +122,18 @@ export interface ClonePlotRequest {
   style: string | null;
   product: string | null;
   productDesc: string | null;
+  /** 视频比例：16:9 / 9:16 / 1:1 */
+  aspectRatio?: string;
+  /** 生成方式：cloud=云端 API 生成，local=本地 comfy 生成 */
+  generationMethod?: 'cloud' | 'local';
+}
+
+export interface CloneCapabilities {
+  /** 是否允许选择本地 comfy（docker 部署下为 false，仅云端） */
+  allow_local_comfy: boolean;
+  default_method: 'cloud' | 'local';
+  default_aspect_ratio: string;
+  aspect_ratios: string[];
 }
 
 export interface CloneStatusResponse {
@@ -199,6 +211,22 @@ export interface Toekn {
   token_type: string;
 }
 
+/** 用户信息（含激活/管理员标记） */
+export interface UserInfo {
+  id: string;
+  email: string;
+  full_name: string | null;
+  created_at?: string | null;
+  is_active: boolean;
+  is_superuser: boolean;
+}
+
+export interface RegisterRequest {
+  email: string;
+  full_name: string | null;
+  password: string;
+}
+
 export interface RegenerateRequest {
   prompt: string;
   width: number|null;
@@ -255,6 +283,12 @@ export const exportScript = async (videoId: number): Promise<Blob> => {
   return response.data;
 };
 
+/** 导出复刻剧本的剧本内容（后端返回 markdown 文件） */
+export const exportCloneScriptPlot = async (cloneScriptId: number): Promise<Blob> => {
+  const response = await api.get(`${API_PREFIX}/clone/${cloneScriptId}/export/plot`, { responseType: "blob" });
+  return response.data;
+};
+
 export const clonePlot = async (cloneRequest: ClonePlotRequest): Promise<ClonePlotResponse> => {
   const response = await api.post<ClonePlotResponse>(`${API_PREFIX}/clone/plot`, cloneRequest);
   return response.data;
@@ -262,6 +296,12 @@ export const clonePlot = async (cloneRequest: ClonePlotRequest): Promise<ClonePl
 
 export const getCloneStatus = async (cloneScriptId: number): Promise<CloneStatusResponse> => {
   const response = await api.get<CloneStatusResponse>(`${API_PREFIX}/clone/${cloneScriptId}/status`);
+  return response.data;
+};
+
+/** 获取生成能力：是否允许本地 comfy、可选比例与默认值 */
+export const getCloneCapabilities = async (): Promise<CloneCapabilities> => {
+  const response = await api.get<CloneCapabilities>(`${API_PREFIX}/clone/capabilities`);
   return response.data;
 };
 
@@ -310,6 +350,34 @@ export const logout = async (): Promise<void> => {
   await api.post(`${API_PREFIX}/login/logout`);
   localStorage.removeItem('token');
   localStorage.removeItem('username')
+}
+
+/** 自助注册：后端一律创建未激活的普通账号，需管理员激活后才能生成内容 */
+export const register = async (payload: RegisterRequest): Promise<void> => {
+  await api.post(`${API_PREFIX}/users`, payload);
+}
+
+/** 当前登录账号信息（含 is_active / is_superuser） */
+export const getMe = async (): Promise<UserInfo> => {
+  const response = await api.get<UserInfo>(`${API_PREFIX}/users/me`);
+  return response.data;
+}
+
+/** 管理员：列出全部账号 */
+export const listUsers = async (): Promise<UserInfo[]> => {
+  const response = await api.get<UserInfo[]>(`${API_PREFIX}/users`);
+  return response.data;
+}
+
+/** 管理员：激活/停用账号 */
+export const setUserActive = async (userId: string, isActive: boolean): Promise<UserInfo> => {
+  const response = await api.patch<UserInfo>(`${API_PREFIX}/users/${userId}/active`, { is_active: isActive });
+  return response.data;
+}
+
+/** 管理员：删除账号（其名下资产由后端级联删除） */
+export const deleteUser = async (userId: string): Promise<void> => {
+  await api.delete(`${API_PREFIX}/users/${userId}`);
 }
 
 export const regenerate = async (category: string, id: number, payload:RegenerateRequest): Promise<void> => {

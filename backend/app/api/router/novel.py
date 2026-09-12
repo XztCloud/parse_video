@@ -16,6 +16,7 @@ from app.api.deps import AsyncSessionDep, CurrentUser
 from app.config import settings
 from app.models.novel import Novel
 from app.models.script import CloneScript
+from app.services.ownership import get_owned_novel, scope_by_owner
 from app.util import make_dir, logger
 
 router = APIRouter(prefix="/novel", tags=["novel"])
@@ -104,6 +105,7 @@ class CloneScriptListItem(BaseModel):
 @router.post("/upload", response_model=NovelUploadResponse)
 async def upload_novel(
     db: AsyncSessionDep,
+    current_user: CurrentUser,
     file: UploadFile = File(...),
     title: str = Form(...),
 ):
@@ -132,9 +134,10 @@ async def upload_novel(
     except UnicodeDecodeError:
         raise HTTPException(status_code=400, detail="文件编码不是UTF-8")
 
-    # 保存文件到磁盘
+    # 保存文件到磁盘（uploads/novels 为所有小说共享目录，必须 re_create=False，
+    # 否则上传新小说会把已有小说的源文件与各章节 markdown 一并删除）
     upload_dir = Path(settings.UPLOAD_DIR) / "novels"
-    make_dir(str(upload_dir))
+    make_dir(str(upload_dir), re_create=False)
 
     # 生成唯一文件名
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -151,6 +154,7 @@ async def upload_novel(
         raw_content=text_content,
         status="PENDING",
         progress=0,
+        user_id=current_user.id,
     )
     db.add(novel)
     await db.commit()
@@ -171,6 +175,7 @@ async def upload_novel(
 async def create_novel_from_text(
     db: AsyncSessionDep,
     request: NovelCreateRequest,
+    current_user: CurrentUser,
 ):
     """通过粘贴文本创建小说
 
@@ -204,6 +209,7 @@ async def create_novel_from_text(
         raw_content=request.content,
         status="PENDING",
         progress=0,
+        user_id=current_user.id,
     )
     db.add(novel)
     await db.commit()
@@ -224,6 +230,7 @@ async def create_novel_from_text(
 async def generate_novel_scripts(
     db: AsyncSessionDep,
     request: NovelGenerateRequest,
+    current_user: CurrentUser,
 ):
     """触发小说转剧本生成
 
@@ -235,8 +242,8 @@ async def generate_novel_scripts(
     """
     from app.tasks.parse_video import novel_generate_task
 
-    # 检查小说是否存在
-    novel = await db.get(Novel, request.novelId)
+    # 归属校验：只能生成自己的小说（无权按不存在处理）
+    novel = await get_owned_novel(db, request.novelId, current_user)
     if not novel:
         raise HTTPException(status_code=404, detail=f"Novel with id {request.novelId} not found")
 
@@ -281,6 +288,7 @@ async def generate_novel_scripts(
 async def get_novel_status(
     db: AsyncSessionDep,
     novel_id: int,
+    current_user: CurrentUser,
 ):
     """获取小说处理状态
 
@@ -290,7 +298,7 @@ async def get_novel_status(
     Returns:
         NovelStatusResponse
     """
-    novel = await db.get(Novel, novel_id)
+    novel = await get_owned_novel(db, novel_id, current_user)
     if not novel:
         raise HTTPException(status_code=404, detail=f"Novel with id {novel_id} not found")
 
@@ -317,6 +325,7 @@ async def get_novel_status(
 async def get_novel_scripts(
     db: AsyncSessionDep,
     novel_id: int,
+    current_user: CurrentUser,
 ):
     """获取小说生成的所有CloneScript
 
@@ -326,8 +335,8 @@ async def get_novel_scripts(
     Returns:
         CloneScriptListItem列表
     """
-    # 检查小说是否存在
-    novel = await db.get(Novel, novel_id)
+    # 归属校验：只能查看自己的小说
+    novel = await get_owned_novel(db, novel_id, current_user)
     if not novel:
         raise HTTPException(status_code=404, detail=f"Novel with id {novel_id} not found")
 
@@ -361,10 +370,11 @@ async def get_novel_scripts(
 @router.get("/list_all", response_model=list[NovelListItem])
 async def list_all_novels(
     db: AsyncSessionDep,
+    current_user: CurrentUser,
     skip: int = 0,
     limit: int = 20,
 ):
-    """获取所有小说列表
+    """获取当前用户可见的小说列表（超管可见全部）
 
     Args:
         skip: 跳过数量
@@ -373,11 +383,9 @@ async def list_all_novels(
     Returns:
         NovelListItem列表
     """
+    stmt = scope_by_owner(select(Novel), Novel, current_user)
     result = await db.execute(
-        select(Novel)
-        .order_by(Novel.created_at.desc())
-        .offset(skip)
-        .limit(limit)
+        stmt.order_by(Novel.created_at.desc()).offset(skip).limit(limit)
     )
     novels = result.scalars().all()
 

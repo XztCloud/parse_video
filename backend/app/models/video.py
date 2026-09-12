@@ -1,4 +1,5 @@
-from sqlalchemy import Column, String, Integer, Float, DateTime, Enum, Text
+from sqlalchemy import Column, String, Integer, Float, DateTime, Enum, Text, ForeignKey
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from ..database import Base
 import enum
@@ -27,5 +28,12 @@ class Video(Base):
     status = Column(Enum(VideoStatus, name="videostatus", create_type=True), default=VideoStatus.PENDING)
     progress = Column(Integer, default=0)
     error_message = Column(String(1024), nullable=True)
+    user_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+        comment="归属用户；删除用户时级联删除其视频",
+    )
     created_at = Column(DateTime, default=datetime.utcnow)
     script = relationship("Script", back_populates="video", uselist=False, cascade="all, delete-orphan")

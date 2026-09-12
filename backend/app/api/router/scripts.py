@@ -4,17 +4,18 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse
 from sqlalchemy import select
 
-from app.api.deps import AsyncSessionDep
+from app.api.deps import AsyncSessionDep, CurrentUser
 from ...models.script import Script, ScriptSegment
+from app.services.ownership import get_owned_script_by_video
 from app.util import logger
 
 router = APIRouter(prefix="/scripts", tags=["scripts"])
 
 @router.get("/{video_id}")
-async def get_script(video_id: int, db: AsyncSessionDep):
+async def get_script(video_id: int, db: AsyncSessionDep, current_user: CurrentUser):
     try:
-        result = await db.execute(select(Script).where(Script.video_id == video_id))
-        script = result.scalar_one_or_none()
+        # 归属校验：普通用户只能读取自己视频的脚本（无权按不存在处理）
+        script = await get_owned_script_by_video(db, video_id, current_user)
         if not script:
             logger.error('not script!!!!')
             raise HTTPException(status_code=404, detail="脚本不存在")
@@ -63,10 +64,10 @@ async def get_script(video_id: int, db: AsyncSessionDep):
         raise
 
 @router.get("/{video_id}/export")
-async def export_script(video_id: int, db: AsyncSessionDep):
+async def export_script(video_id: int, db: AsyncSessionDep, current_user: CurrentUser):
     try:
-        result = await db.execute(select(Script).where(Script.video_id == video_id))
-        script = result.scalar_one_or_none()
+        # 归属校验必须在读取文件/导出之前完成
+        script = await get_owned_script_by_video(db, video_id, current_user)
         if not script:
             raise HTTPException(status_code=404, detail="脚本不存在")
         script_content = ''

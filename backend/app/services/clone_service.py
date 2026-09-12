@@ -10,7 +10,7 @@ from typing import Literal
 from datetime import datetime, timezone, timedelta
 
 from fastapi import HTTPException
-from sqlalchemy import or_, select, update
+from sqlalchemy import and_, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -28,6 +28,7 @@ from app.models.script import (
     Script,
 )
 from app.models.video import Video
+from app.models.user import User
 from app.util import FRAME_BEGIN_PROGRESS, IMAGE_BEGIN_PROGRESS, MERGE_VIDEO_BEGIN_PROGRESS, SEGMENT_BEGIN_PROGRESS, SEGMENT_VIDEO_BEGIN_PROGRESS, VOICE_BEGIN_PROGRESS, get_md5, logger
 
 # 北京时间 UTC+8
@@ -39,6 +40,15 @@ SEGMENT_MIN_DURATION = 1.0     # 单镜最短时长（秒），与分镜 LLM 约
 SEGMENT_MAX_DURATION = 15.0    # 单镜最长时长（秒），与 GROUP_MAX_DURATION 对齐
 SEGMENT_CONTINUATION_PAD = 0.5 # 跨镜台词延续段(body/tail)的衔接留白（秒），不计入整句音频
 
+
+# 渲染进行中的状态：处于这些状态时不允许再次触发渲染，避免整条流水线被覆盖重跑
+IN_PROGRESS_FLOW_STATUSES = [
+    GenerateFlowStatus.VOICE,
+    GenerateFlowStatus.IMAGE,
+    GenerateFlowStatus.FRAME,
+    GenerateFlowStatus.SEGMENT_VIDEO,
+    GenerateFlowStatus.MERGE_VIDEO,
+]
 
 # step -> (进入状态, 进度, 前置允许状态列表)
 # 复刻剧本 = plot(1) + segments(2)；渲染 = voice(3) + images(4) + video(6) + merge(7)
@@ -163,7 +173,15 @@ async def advance_clone_step(
         if generate_allowed:
             or_conditions.append(CloneScript.generate_flow_status.in_(generate_allowed))
         if clone_allowed:
-            or_conditions.append(CloneScript.clone_status.in_(clone_allowed))
+            # clone_status 兜底（如复刻剧本 SEGMENTS_DONE 起跑渲染）仅在当前没有渲染进行中时生效，
+            # 否则渲染进行中重复触发会整条流水线覆盖重跑。
+            or_conditions.append(and_(
+                CloneScript.clone_status.in_(clone_allowed),
+                or_(
+                    CloneScript.generate_flow_status.is_(None),
+                    CloneScript.generate_flow_status.notin_(IN_PROGRESS_FLOW_STATUSES),
+                ),
+            ))
 
         if not or_conditions:
             raise HTTPException(status_code=400, detail="无可匹配的状态条件")
@@ -179,6 +197,10 @@ async def advance_clone_step(
         )
     await db.commit()
     if result.rowcount == 0:
+        # 区分「渲染进行中」与「状态不匹配」，前者给出更明确的提示
+        current = await get_clone_script(db, clone_script_id)
+        if current and current.generate_flow_status in IN_PROGRESS_FLOW_STATUSES:
+            raise HTTPException(status_code=409, detail="任务正在进行中，请等待完成后再操作")
         raise HTTPException(status_code=404, detail="任务已在运行或状态不正确")
 
     clone_script = await get_clone_script(db, clone_script_id)
@@ -213,20 +235,27 @@ def generate_flow_status_value(status) -> str:
 
 async def list_all_clone_scripts(
     db: AsyncSession,
+    user: User,
     offset: int = 0,
     limit: int = 50,
 ) -> list[dict]:
-    """列出所有复刻剧本，附带原视频信息（含小说来源）。"""
+    """列出当前用户可见的复刻剧本（超管可见全部），附带原视频信息（含小说来源）。
+
+    归属取最外层：视频来源看 Video.user_id，小说来源看 Novel.user_id。
+    """
     from app.models.novel import Novel
 
-    result = await db.execute(
+    stmt = (
         select(CloneScript, Script, Video, Novel.title.label("novel_title"))
         .outerjoin(Script, CloneScript.script_id == Script.id)
         .outerjoin(Video, Script.video_id == Video.id)
         .outerjoin(Novel, CloneScript.novel_id == Novel.id)
-        .order_by(CloneScript.created_at.desc())
-        .offset(offset)
-        .limit(limit)
+    )
+    if not user.is_superuser:
+        stmt = stmt.where(or_(Video.user_id == user.id, Novel.user_id == user.id))
+
+    result = await db.execute(
+        stmt.order_by(CloneScript.created_at.desc()).offset(offset).limit(limit)
     )
     rows = result.all()
     return [
