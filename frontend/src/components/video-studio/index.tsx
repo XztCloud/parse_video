@@ -4,10 +4,11 @@ import { useEffect, useState, useCallback } from "react";
 import Sidebar from "./Sidebar";
 import Header from "./Header";
 import ParseVideoTab from "./ParseVideoTab";
+import NovelScriptTab from "./NovelScriptTab";
 import CopyScriptTab from "./CopyScriptTab";
 import GenerateVideoTab from "./GenerateVideoTab";
 import DetailModal from "./DetailModal";
-import { listVideos, getScript, getCloneScript, listAllCloneScripts, ScriptSegment, VideoListItem, CloneAllItem } from "@/lib/api";
+import { listVideos, getScript, getCloneScript, listAllCloneScripts, listNovels, getNovelScripts, ScriptSegment, VideoListItem, CloneAllItem } from "@/lib/api";
 import {
   ParseHistoryItem,
   CopyHistoryItem,
@@ -31,19 +32,20 @@ function formatDuration(seconds: number | null | undefined): string {
 }
 
 /** 将后端 VideoListItem 映射成 ParseHistoryItem */
-function mapVideoToParseItem(v: VideoListItem, index: number): ParseHistoryItem {
+function mapVideoToParseItem(v: VideoListItem): ParseHistoryItem {
   const isDone = v.status === "done";
+  const isFailed = v.status === "failed";
   return {
     id: v.id,
     title: v.filename || "未命名视频",
     duration: formatDuration(v.duration),
     shots: 0,
-    status: isDone ? "done" : "processing",
-    time: isDone ? (v.category || "已解析") : "解析中",
+    status: isDone ? "done" : isFailed ? "failed" : "processing",
+    time: isDone ? (v.category || "已解析") : isFailed ? "解析失败" : "解析中",
     source: "上传视频",
-    tag: (isDone && v.category) || (isDone ? "未分类" : "解析中"),
+    tag: (isDone && v.category) || (isDone ? "未分类" : isFailed ? "解析失败" : "解析中"),
     tagColor: isDone ? tagColorFor(v.category) : DEFAULT_TAG_COLOR,
-    progress: isDone ? undefined : v.progress,
+    progress: (isDone || isFailed) ? undefined : v.progress,
   };
 }
 
@@ -57,7 +59,7 @@ export default function VideoStudio() {
 
   // Detail modal state
   const [modalOpen, setModalOpen] = useState(false);
-  const [modalType, setModalType] = useState<"parse" | "copy">("parse");
+  const [modalType, setModalType] = useState<"parse" | "copy" | "novel">("parse");
   const [modalTitle, setModalTitle] = useState("");
   const [modalSubtitle, setModalSubtitle] = useState("");
   const [modalSegments, setModalSegments] = useState<ScriptSegment[]>([]);
@@ -73,6 +75,7 @@ export default function VideoStudio() {
   // 生成视频页面的剧本数据
   const [genParsedScripts, setGenParsedScripts] = useState<ScriptItem[]>([]);
   const [genClonedScripts, setGenClonedScripts] = useState<ScriptItem[]>([]);
+  const [genNovelScripts, setGenNovelScripts] = useState<ScriptItem[]>([]);
 
   // 拉取真实视频列表
   const fetchVideos = useCallback(async () => {
@@ -112,9 +115,9 @@ export default function VideoStudio() {
     try {
       const allItems = await listAllCloneScripts(0, 50);
 
-      // 构建复制剧本列表（SEGMENTS_DONE）
+      // 构建复制剧本列表（仅 source_type 为 CLONE，且 SEGMENTS_DONE）
       const cloned: ScriptItem[] = allItems
-        .filter(item => item.clone_status === 'SEGMENTS_DONE')
+        .filter(item => item.source_type === 'CLONE' && item.clone_status === 'SEGMENTS_DONE')
         .map(item => {
           const tag = item.clone_theme || '未分类';
           return {
@@ -129,19 +132,19 @@ export default function VideoStudio() {
         });
       setGenClonedScripts(cloned);
 
-      // 构建生成历史（step3+ 状态的克隆脚本）
-      const genStatuses = ['VOICE', 'VOICE_DONE', 'IMAGE', 'IMAGE_DONE', 'FRAME', 'FRAME_DONE', 'SEGMENT_VIDEO', 'SEGMENT_VIDEO_DONE', 'MERGE_VIDEO', 'DONE', 'FAILED'];
+      // 构建生成历史（step3+ 状态的克隆脚本，基于 generate_flow_status）
+      const genStatuses = ['VOICE', 'VOICE_DONE', 'IMAGE', 'IMAGE_DONE', 'FRAME', 'FRAME_DONE', 'SEGMENT_VIDEO', 'SEGMENT_VIDEO_DONE', 'MERGE_VIDEO', 'MERGE_VIDEO_DONE', 'FAILED'];
       const genHistory: GenerateHistoryItem[] = allItems
-        .filter(item => genStatuses.includes(item.clone_status))
+        .filter(item => genStatuses.includes(item.generate_flow_status))
         .map(item => {
-          const isDone = item.clone_status === 'DONE' || item.clone_status.endsWith('_DONE');
-          const isFailed = item.clone_status === 'FAILED';
+          const isDone = item.generate_flow_status === 'MERGE_VIDEO_DONE' || item.generate_flow_status.endsWith('_DONE');
+          const isFailed = item.generate_flow_status === 'FAILED';
           const stepMap: Record<string, number> = {
             VOICE: 1, VOICE_DONE: 1,
             IMAGE: 2, IMAGE_DONE: 2,
             FRAME: 3, FRAME_DONE: 3,
             SEGMENT_VIDEO: 4, SEGMENT_VIDEO_DONE: 4,
-            MERGE_VIDEO: 5, DONE: 5,
+            MERGE_VIDEO: 5, MERGE_VIDEO_DONE: 5,
           };
           let displayTime = '—';
           if (item.created_at) {
@@ -162,13 +165,44 @@ export default function VideoStudio() {
             time: displayTime,
             source: item.source_type === 'ORIGINAL' ? '原片直转' : '剧本复制',
             style: item.clone_theme,
-            step: stepMap[item.clone_status] || 0,
-            stepPercent: item.clone_progress,
+            step: stepMap[item.generate_flow_status] || 0,
+            stepPercent: item.generate_flow_progress,
             cloneScriptId: item.id,
-            cloneStatus: item.clone_status,
+            cloneStatus: item.generate_flow_status,
           };
         });
       setGenerateHistoryData(genHistory);
+    } catch {
+      // 静默失败
+    }
+  }, []);
+
+  // 拉取小说转剧本的剧本列表
+  const fetchNovelScripts = useCallback(async () => {
+    try {
+      const novels = await listNovels(0, 50);
+      const allNovelScripts: ScriptItem[] = [];
+      for (const novel of novels) {
+        try {
+          const scripts = await getNovelScripts(novel.id);
+          for (const script of scripts) {
+            if (script.source_type !== 'NOVEL') continue;
+            allNovelScripts.push({
+              id: script.id,
+              title: `${novel.title.slice(0, 6)}-${script.chapter_index ?? 0}-${script.chapter_title || `场景 ${(script.scene_index ?? 0) + 1}`}`,
+              shots: 0,
+              tag: novel.title.slice(0, 6),
+              color: 'from-indigo-400 to-blue-500',
+              info: `小说转剧本`,
+              sourceId: script.id,
+              sourceType: 'novel' as const,
+            });
+          }
+        } catch {
+          // 单个小说获取失败不影响其他
+        }
+      }
+      setGenNovelScripts(allNovelScripts);
     } catch {
       // 静默失败
     }
@@ -178,7 +212,8 @@ export default function VideoStudio() {
   useEffect(() => {
     fetchVideos();
     fetchCloneAndGenHistory();
-  }, [fetchVideos, fetchCloneAndGenHistory]);
+    fetchNovelScripts();
+  }, [fetchVideos, fetchCloneAndGenHistory, fetchNovelScripts]);
 
   const handleViewParseDetail = async (item: ParseHistoryItem) => {
     const meta = videosMeta[item.id];
@@ -268,6 +303,9 @@ export default function VideoStudio() {
                 onRefresh={fetchVideos}
               />
             )}
+            {activeTab === "novel" && (
+              <NovelScriptTab />
+            )}
             {activeTab === "copy" && (
               <CopyScriptTab
                 history={copyHistoryData}
@@ -281,9 +319,10 @@ export default function VideoStudio() {
             {activeTab === "generate" && (
               <GenerateVideoTab
                 history={generateHistoryData}
-                onRefresh={fetchCloneAndGenHistory}
+                onRefresh={async () => { await fetchCloneAndGenHistory(); await fetchNovelScripts(); }}
                 parsedScripts={genParsedScripts}
                 clonedScripts={genClonedScripts}
+                novelScripts={genNovelScripts}
               />
             )}
           </div>

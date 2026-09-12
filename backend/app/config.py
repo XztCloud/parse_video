@@ -71,6 +71,14 @@ class Settings(BaseSettings):
 
     # 抖音下载使用的浏览器 cookies 文件路径（Netscape 格式），可为空
     DOUYIN_COOKIES_FILE: str = ""
+    
+    RUNNINGHUB_API_KEY: str = ""
+    # RunningHub H3 多人音频驱动工作流（图生视频数字人）应用 ID
+    RUNNINGHUB_H3_VIDEO_APP_ID: str = "2092854164392075266"
+    # 运行实例类型（default=24G / plus=48G）
+    RUNNINGHUB_H3_VIDEO_INSTANCE_TYPE: str = "default"
+    # 单次视频任务最大等待秒数
+    RUNNINGHUB_VIDEO_MAX_WAIT_SECONDS: int = 600
         
     model_config = SettingsConfigDict(
         env_file="../.env",      # 👈 核心：告诉它去上一级目录找 .env

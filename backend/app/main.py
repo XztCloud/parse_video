@@ -42,14 +42,21 @@ def create_app() -> FastAPI:
         'title': 'parse_video',
         'version': __api_version__,
         'lifespan': lifespan,
-        'openapi_url': '/api/v1/openapi.json'
     }
 
     if settings.is_production:
+        # 生产环境：关闭所有文档页面，防止接口结构被爬取
         app_kwargs.update({
             'docs_url': None,     # 关闭 /docs
             'redoc_url': None,    # 关闭 /redoc
-            'openapi_url': None   # 关闭 /openapi.json (核心！防止被爬取接口结构)
+            'openapi_url': None   # 关闭 /openapi.json
+        })
+    else:
+        # 开发/测试环境：启用文档页面
+        app_kwargs.update({
+            'docs_url': '/docs',           # Swagger UI
+            'redoc_url': '/redoc',         # ReDoc
+            'openapi_url': '/openapi.json' # OpenAPI JSON
         })
 
     app = FastAPI(**app_kwargs)

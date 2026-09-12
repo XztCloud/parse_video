@@ -9,18 +9,15 @@ import requests
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.script import CloneRoleImage, CloneSceneImage, CloneScript, CloneScriptSegment, CloneSegmentImg, CloneStatus, GenerateStatus
+from app.models.script import CloneRoleImage, CloneSceneImage, CloneScript, CloneScriptSegment, CloneSegmentImg, CloneStatus, GenerateFlowStatus, GenerateStatus
 from app.services.llm import SegmentRoleView
 from app.tasks.process_loop_manager import process_loop
 from app.config import settings
-from app.util import ImageRegenerateInput, get_image_info, make_dir
+from app.util import FRAME_BEGIN_PROGRESS, FRAME_COMPLETE_PROGRESS, ImageRegenerateInput, get_image_info, make_dir
 from app.services.gen_image import ReferImageInfo
 from app.services.clone_image import generate_image
 
 logger = get_task_logger(__name__)
-
-BEGIN_PROGRESS = 46 
-COMPLETE_PROGRESS = 60
 
 def log_node_start():
     # [1] 代表上一层调用者的堆栈帧
@@ -283,55 +280,96 @@ async def generate_segment_frame_prompt(clone_script_id: int, go_head: bool=True
         if not clone_script or not clone_script.clone_parse_pointer:
             raise Exception('not find clone_script in generate_storyboard')
             
-        clone_script.clone_progress = BEGIN_PROGRESS
+        clone_script.generate_flow_progress = FRAME_BEGIN_PROGRESS
         await db.commit()
+        
+        USE_MINIMAX_H3 = True
+        if not USE_MINIMAX_H3:
+           
+            res = await db.execute(select(CloneScriptSegment).where(CloneScriptSegment.script_id == clone_script_id).order_by(CloneScriptSegment.start_time))
+            segments = res.scalars().all()
+            
+            save_dir = settings.UPLOAD_DIR + '/clone_' + str(clone_script_id)
+            make_dir(save_dir, re_create=False)
+            
+            # test_cnt = 0
+            for i, segment in enumerate(segments):
+                logger.info(f'generate segment sequence: {i+1}/{len(segments)}, segment id: {segment.id}')
+                if go_head:
+                    # 找分镜图片, 找到已生成则跳过
+                    res = await db.execute(select(CloneSegmentImg).where(CloneSegmentImg.clone_script_sgement_id == segment.id))
+                    # 如果增加多个参考帧，这里需要变化
+                    clone_seg_imgs = res.scalars().all()
+                    logger.info(f'clone_seg_imgs1: {clone_seg_imgs}')
+                    if clone_seg_imgs:
+                        logger.info(f'clone_seg_imgs2: {clone_seg_imgs}')
+                        _continue = True
+                        for clone_seg_img in clone_seg_imgs:
+                            logger.info(f'clone_seg_img status: {clone_seg_img.status}')
+                            if clone_seg_img.status != GenerateStatus.SUCCESS:
+                                logger.info('find status != SUCCESS, start regenerate it.')
+                                _continue = False
+                                # 失败的帧都先删除掉
+                                await db.execute(delete(CloneSegmentImg).where(CloneSegmentImg.id == clone_seg_img.id))
+                                await db.commit()
+                        if _continue:
+                            continue
+                else:
+                    await db.execute(delete(CloneSegmentImg).where(CloneSegmentImg.clone_script_sgement_id == segment.id))
+                    await db.commit()
+                # if test_cnt > 0:
+                #     continue
+                # test_cnt += 1
+                refer_img_list = []
+                logger.info(f'segment: {vars(segment)}')
+                # 1. 根据据scene_name 找到 场景提示词 和 场景图片在comfy中名称
+                scene_info = await filter_scene_info(db, segment.scene_name, clone_script_id)
+                logger.info(f'scene_info: {scene_info}')
+                # 2. 筛选role_view_info中可见角色信息，提取人物提示词 位置 动作 表情 和 人物图片在comfy中名称
+                role_info_list = await filter_role_info(db, segment, clone_script_id)
+                logger.info(f'role_info_list: {role_info_list}')
+                if role_info_list is None:
+                    # 场景没有人物
+                    seed= random.randint(100000000000000, 999999999999999)
+                    image_path = Path(scene_info.path)
+                    image_info = get_image_info(image_path)
+                    clone_image = CloneSegmentImg(
+                        clone_script_sgement_id=segment.id, 
+                        width=image_info['width'],
+                        height=image_info['height'],
+                        path=str(image_path.absolute()),
+                        desc=f'分镜{i+1} 首帧',
+                        seed=seed,
+                        prompt=scene_info.prompt,
+                        status=GenerateStatus.SUCCESS,
+                        version=0
+                    )
+                    db.add(clone_image)
+                    clone_script.generate_flow_progress = FRAME_BEGIN_PROGRESS + (FRAME_COMPLETE_PROGRESS - FRAME_BEGIN_PROGRESS) * (i + 1) // len(segments)
+                    await db.commit()
+                    await db.refresh(clone_image)
+                    continue
+                # continue
+                # 3. 整合提取的场景信息 + 角色信息 + 分镜提示词 + 分镜镜头描述 + 分镜气氛 整合成提示词
+                merge_prompt = await merge_frame_prompt(scene_info=scene_info, role_info_list=role_info_list, refer_img_list=refer_img_list, shot=segment.shot_type)
+                logger.info(f'merge_prompt: {merge_prompt}')
+                logger.info(f'refer_img_list: {refer_img_list}')
                 
-        res = await db.execute(select(CloneScriptSegment).where(CloneScriptSegment.script_id == clone_script_id).order_by(CloneScriptSegment.start_time))
-        segments = res.scalars().all()
-        
-        save_dir = settings.UPLOAD_DIR + '/clone_' + str(clone_script_id)
-        make_dir(save_dir, re_create=False)
-        
-        # test_cnt = 0
-        for i, segment in enumerate(segments):
-            logger.info(f'generate segment sequence: {i+1}/{len(segments)}, segment id: {segment.id}')
-            if go_head:
-                # 找分镜图片, 找到已生成则跳过
-                res = await db.execute(select(CloneSegmentImg).where(CloneSegmentImg.clone_script_sgement_id == segment.id))
-                # 如果增加多个参考帧，这里需要变化
-                clone_seg_imgs = res.scalars().all()
-                logger.info(f'clone_seg_imgs1: {clone_seg_imgs}')
-                if clone_seg_imgs:
-                    logger.info(f'clone_seg_imgs2: {clone_seg_imgs}')
-                    _continue = True
-                    for clone_seg_img in clone_seg_imgs:
-                        logger.info(f'clone_seg_img status: {clone_seg_img.status}')
-                        if clone_seg_img.status != GenerateStatus.SUCCESS:
-                            logger.info('find status != SUCCESS, start regenerate it.')
-                            _continue = False
-                            # 失败的帧都先删除掉
-                            await db.execute(delete(CloneSegmentImg).where(CloneSegmentImg.id == clone_seg_img.id))
-                            await db.commit()
-                    if _continue:
-                        continue
-            else:
-                await db.execute(delete(CloneSegmentImg).where(CloneSegmentImg.clone_script_sgement_id == segment.id))
-                await db.commit()
-            # if test_cnt > 0:
-            #     continue
-            # test_cnt += 1
-            refer_img_list = []
-            logger.info(f'segment: {vars(segment)}')
-            # 1. 根据据scene_name 找到 场景提示词 和 场景图片在comfy中名称
-            scene_info = await filter_scene_info(db, segment.scene_name, clone_script_id)
-            logger.info(f'scene_info: {scene_info}')
-            # 2. 筛选role_view_info中可见角色信息，提取人物提示词 位置 动作 表情 和 人物图片在comfy中名称
-            role_info_list = await filter_role_info(db, segment, clone_script_id)
-            logger.info(f'role_info_list: {role_info_list}')
-            if role_info_list is None:
-                # 场景没有人物
-                seed= random.randint(100000000000000, 999999999999999)
-                image_path = Path(scene_info.path)
+                # 4. 上传图片到comfy
+                await upload_img_to_comfy(refer_img_list=refer_img_list)
+                logger.info(f'after send comfy. refer_img_list is {refer_img_list}')
+                
+                
+                # 5. 使用comfy流水线，输入提示词 角色图片 场景图片 输出分镜首帧
+                prefix = f'segment_' + str(uuid.uuid4())
+                logger.info(f'prefix: {prefix}')
+                name_comfy, image_path, seed = await generate_image(
+                    prompt=merge_prompt, 
+                    save_dir=save_dir, 
+                    prefix=prefix,  
+                    img_type='frame',
+                    refer_imgs=refer_img_list
+                )
                 image_info = get_image_info(image_path)
                 clone_image = CloneSegmentImg(
                     clone_script_sgement_id=segment.id, 
@@ -340,59 +378,21 @@ async def generate_segment_frame_prompt(clone_script_id: int, go_head: bool=True
                     path=str(image_path.absolute()),
                     desc=f'分镜{i+1} 首帧',
                     seed=seed,
-                    prompt=scene_info.prompt,
+                    prompt=merge_prompt,
                     status=GenerateStatus.SUCCESS,
-                    version=0
+                    version=0,
+                    name_comfy=name_comfy
                 )
                 db.add(clone_image)
-                clone_script.clone_progress = BEGIN_PROGRESS + int((COMPLETE_PROGRESS - BEGIN_PROGRESS) * (i + 1) / len(segments))
+                cur_progress = FRAME_BEGIN_PROGRESS + (FRAME_COMPLETE_PROGRESS - FRAME_BEGIN_PROGRESS) * (i + 1) // len(segments)
+                logger.info(f'cur_progress: {cur_progress}')
+                clone_script.generate_flow_progress = cur_progress
                 await db.commit()
                 await db.refresh(clone_image)
-                continue
-            # continue
-            # 3. 整合提取的场景信息 + 角色信息 + 分镜提示词 + 分镜镜头描述 + 分镜气氛 整合成提示词
-            merge_prompt = await merge_frame_prompt(scene_info=scene_info, role_info_list=role_info_list, refer_img_list=refer_img_list, shot=segment.shot_type)
-            logger.info(f'merge_prompt: {merge_prompt}')
-            logger.info(f'refer_img_list: {refer_img_list}')
             
-            # 4. 上传图片到comfy
-            await upload_img_to_comfy(refer_img_list=refer_img_list)
-            logger.info(f'after send comfy. refer_img_list is {refer_img_list}')
-            
-            
-            # 5. 使用comfy流水线，输入提示词 角色图片 场景图片 输出分镜首帧
-            prefix = f'segment_' + str(uuid.uuid4())
-            logger.info(f'prefix: {prefix}')
-            name_comfy, image_path, seed = await generate_image(
-                prompt=merge_prompt, 
-                save_dir=save_dir, 
-                prefix=prefix,  
-                img_type='frame',
-                refer_imgs=refer_img_list
-            )
-            image_info = get_image_info(image_path)
-            clone_image = CloneSegmentImg(
-                clone_script_sgement_id=segment.id, 
-                width=image_info['width'],
-                height=image_info['height'],
-                path=str(image_path.absolute()),
-                desc=f'分镜{i+1} 首帧',
-                seed=seed,
-                prompt=merge_prompt,
-                status=GenerateStatus.SUCCESS,
-                version=0,
-                name_comfy=name_comfy
-            )
-            db.add(clone_image)
-            cur_progress = BEGIN_PROGRESS + int((COMPLETE_PROGRESS - BEGIN_PROGRESS) * (i + 1) / len(segments))
-            logger.info(f'cur_progress: {cur_progress}')
-            clone_script.clone_progress = cur_progress
-            await db.commit()
-            await db.refresh(clone_image)
-        
-            # 5. 保存数据库
-        clone_script.clone_progress = COMPLETE_PROGRESS
-        clone_script.clone_status = CloneStatus.FRAME_DONE
+        # 5. 保存数据库
+        clone_script.generate_flow_progress = FRAME_COMPLETE_PROGRESS
+        clone_script.generate_flow_status = GenerateFlowStatus.FRAME_DONE
         await db.commit()
     except Exception as e:
         error_message = f'generate_segment_frame_prompt failed. {str(e)}'

@@ -130,10 +130,10 @@ def tts_http_sse_stream(url, headers, params, audio_save_path):
         duration = 0
         # 保存音频文件
         if audio_data:
-            if os.path.exists(audio_save_path):
-                backup_path = f"{audio_save_path}.bak_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-                shutil.copy2(audio_save_path, backup_path)
-                logger.info(f"📦 原文件已备份到: {backup_path}")
+            # if os.path.exists(audio_save_path):
+            #     backup_path = f"{audio_save_path}.bak_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            #     shutil.copy2(audio_save_path, backup_path)
+            #     logger.info(f"📦 原文件已备份到: {backup_path}")
 
             with open(audio_save_path, "wb") as f:
                 f.write(audio_data)
@@ -428,6 +428,14 @@ class GenVoice:
                         raise Exception(f'not find speaker by role {lines.role_name}')
                     file_name = lines.role_name + '_' + str(index) + '.mp3'
                     audio_save_path = Path(save_dir) / file_name
+                    
+                    file_path = Path(audio_save_path)
+
+                    # 如果是普通文件（或软链接），存在则删除
+                    if file_path.is_file():
+                        file_path.unlink()
+                        print("文件已成功删除")
+                    
                     headers, payload = await self._gen_request(speaker, lines)
                    
                     duration = await asyncio.to_thread(tts_http_sse_stream, url=url, headers=headers, params=payload, audio_save_path=audio_save_path)

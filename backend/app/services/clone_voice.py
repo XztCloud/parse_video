@@ -15,11 +15,12 @@ from langgraph.types import Command
 from sqlalchemy import delete, select
 from app.services.gen_voice import GenVoice, GenVoiceParam, Lines
 from app.tasks.process_loop_manager import process_loop
-from app.models.script import CloneScript, CloneStatus, CloneVoice
+from app.models.script import CloneScript, CloneStatus, CloneVoice, GenerateFlowStatus
 from app.config import settings
-from app.util import calculate_duration_units, get_md5, make_dir
+from app.util import VOICE_BEGIN_PROGRESS, VOICE_COMPLETE_PROGRESS, calculate_duration_units, get_md5, make_dir
 from app.models.voice import VoiceInfoCollect
 from app.services.clone_plot import send_fail_status
+from app.services.clone_service import sync_segment_timeline
 from app.services.llm import CloneAnalysis, ReloadLinesPrompt
 from app.services.predict.predict_voice_duration import PredictVoiceDuration
 from langchain.messages import AIMessage, AnyMessage, HumanMessage, SystemMessage
@@ -143,7 +144,7 @@ async def preload_lines_voices(state: CloneVoiceState, config: RunnableConfig):
             save_dir=save_dir
         )
 
-        clone_script.clone_progress = 22
+        clone_script.generate_flow_progress = VOICE_BEGIN_PROGRESS
         await db.commit() 
 
         logger.info(f'voice_seek_info is {voice_seek_info.model_dump_json()}')
@@ -342,8 +343,8 @@ async def save_voice_info(state: CloneVoiceState):
                 sort_order += 1
                 db.add(clone_voice)
         
-        clone_script.clone_status = CloneStatus.VOICE_DONE
-        clone_script.clone_progress = 30
+        clone_script.generate_flow_status = GenerateFlowStatus.VOICE_DONE
+        clone_script.generate_flow_progress = VOICE_COMPLETE_PROGRESS
 
         await db.commit()
                 
@@ -372,6 +373,9 @@ async def next_scene_voice(state:CloneVoiceState):
             await reset_lines_duration(state=state)
 
             await save_voice_info(state=state)
+
+            # 配音落库后，用真实音频时长校准分镜时间轴（幂等），供生图/分镜视频/合并使用
+            await sync_segment_timeline(state['clone_script_id'])
 
             return Command(
                 goto='__end__'
@@ -466,7 +470,7 @@ async def reload_scene_lines(state: CloneVoiceState):
 
 
 async def reset_speach_rate(state: CloneVoiceState):
-    """ 调整音频速度 """
+    """ 调整音频速度（加速或减速，保持音调不变） """
     log_node_start()
     try:
         voice_seek_info = state['voice_seek_info']
@@ -474,19 +478,27 @@ async def reset_speach_rate(state: CloneVoiceState):
         seek_plot_idx = voice_seek_info.seek_plot_idx
         cur_scene_lines = voice_seek_info.lines_infos[seek_plot_idx]
         for lines in cur_scene_lines:
-            
+
             # 加载音频
             audio = AudioSegment.from_file(lines.audio_path)
 
-            # 调速：speed=1.5 表示加速50%
-            changed_audio = audio.speedup(playback_speed=ratio)
+            # 变速：ratio > 1 加速，ratio < 1 减速
+            # 通过改变采样率再 resample 回来实现，音调保持不变
+            # （pydub 的 speedup() 只支持 >=1.0 加速，无法减速，且会损坏音频）
+            changed_audio = audio._spawn(
+                audio.raw_data,
+                overrides={"frame_rate": int(audio.frame_rate * ratio)}
+            ).set_frame_rate(audio.frame_rate)
+
             with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as tmp:
                 temp_path = tmp.name
                 logger.info(f"💾 导出到临时文件: {temp_path}")
                 changed_audio.export(temp_path, format="mp3")
             # 保存
             shutil.move(temp_path, lines.audio_path)
-            logger.info(f"✅ 覆盖成功: {lines.audio_path}")
+            # 更新变速后的实际时长，保证落库时长准确、ratio 后续可收敛
+            lines.duration = len(changed_audio) / 1000.0
+            logger.info(f"✅ 覆盖成功: {lines.audio_path}, 变速后时长: {lines.duration:.2f}s")
 
         return Command(
             update={'voice_seek_info': voice_seek_info},
@@ -503,7 +515,7 @@ async def reset_speach_rate(state: CloneVoiceState):
     
 async def process_error(state: CloneVoiceState):
     log_node_start()
-    await send_fail_status(state['clone_script_id'], state['error'])
+    await send_fail_status(state['clone_script_id'], state['error'], flow_type='generate')
     logger.info('process_error')
     
 

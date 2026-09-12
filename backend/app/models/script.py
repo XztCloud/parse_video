@@ -1,4 +1,4 @@
-from sqlalchemy import BigInteger, Column, Index, String, Integer, Float, DateTime, Enum, ForeignKey, JSON, Text
+from sqlalchemy import BigInteger, Boolean, Column, Index, String, Integer, Float, DateTime, Enum, ForeignKey, JSON, Text
 from sqlalchemy.orm import relationship
 from ..database import Base
 from datetime import datetime
@@ -19,7 +19,7 @@ class GenerateStatus(str, enum.Enum):
     SUCCESS = "SUCCESS"
     FAILED = "FAILED"
     
-class CloneStatusNew(str, enum.Enum):
+class CloneStatus(str, enum.Enum):
     PENDING = "PENDING"
     PLOT = "PLOT"
     PLOT_DONE = "PLOT_DONE"
@@ -41,23 +41,7 @@ class GenerateFlowStatus(str, enum.Enum):
     MERGE_VIDEO_DONE = "MERGE_VIDEO_DONE"
     FAILED = "FAILED"
 
-class CloneStatus(str, enum.Enum):
-    PENDING = "PENDING"
-    PLOT = "PLOT"
-    PLOT_DONE = "PLOT_DONE"
-    VOICE = "VOICE"
-    VOICE_DONE = "VOICE_DONE"
-    SEGMENTS = "SEGMENTS"
-    SEGMENTS_DONE = "SEGMENTS_DONE"
-    IMAGE = "IMAGE"
-    IMAGE_DONE = "IMAGE_DONE"
-    FRAME = 'FRAME'
-    FRAME_DONE = 'FRAME_DONE'
-    SEGMENT_VIDEO = "SEGMENT_VIDEO"
-    SEGMENT_VIDEO_DONE = "SEGMENT_VIDEO_DONE"
-    MERGE_VIDEO = "MERGE_VIDEO"
-    DONE = "DONE"
-    FAILED = "FAILED"
+
 
 class Script(Base):
     __tablename__ = "scripts"
@@ -91,8 +75,9 @@ class ScriptSegment(Base):
 class CloneScript(Base):
     __tablename__ = "clone_scripts"
     id = Column(Integer, primary_key=True, index=True)
-    script_id = Column(Integer, ForeignKey("scripts.id", ondelete="CASCADE"))
-    source_type = Column(String(16), nullable=False, default='CLONE', server_default='CLONE', comment="工作台来源：CLONE=复刻剧本 / ORIGINAL=原片直转渲染")
+    script_id = Column(Integer, ForeignKey("scripts.id", ondelete="CASCADE"), nullable=True)  # 改为nullable，支持小说来源
+    novel_id = Column(Integer, ForeignKey("novels.id", ondelete="SET NULL"), nullable=True, comment="FK to novels table for NOVEL source_type")
+    source_type = Column(String(16), nullable=False, default='CLONE', server_default='CLONE', comment="工作台来源：CLONE=复刻剧本 / ORIGINAL=原片直转渲染 / NOVEL=小说转剧本")
     clone_theme = Column(String(255), comment="复刻视频主题")
     clone_requirements = Column(JSON, nullable=True, comment="复刻视频的要求")
     clone_parse_pointer = Column(JSON, nullable=True, comment="解析重点信息（CloneAnalysisFocus JSON）")
@@ -100,10 +85,13 @@ class CloneScript(Base):
     clone_parse_file_path = Column(Text, nullable=True, comment="复刻解析结果文件路径,markdown格式")
     clone_status = Column(Enum(CloneStatus, name="clonestatus", create_type=True), default=CloneStatus.PENDING)
     clone_progress = Column(Integer, default=0)
+    generate_flow_status = Column(Enum(GenerateFlowStatus, name="generateflowstatus", create_type=True), default=GenerateFlowStatus.PENDING)
+    generate_flow_progress = Column(Integer, default=0)
     clone_error_message = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     script = relationship("Script", back_populates="clone_script")
+    novel = relationship("Novel", backref="clone_scripts")  # 新增：小说关系
     clone_segments = relationship("CloneScriptSegment", back_populates="clone_script", cascade="all, delete-orphan")
     clone_videos = relationship("CloneVideo", back_populates="clone_script", cascade="all, delete-orphan")
     clone_voices = relationship("CloneVoice", back_populates="clone_script", cascade="all, delete-orphan")
@@ -168,6 +156,7 @@ class CloneScriptSegment(Base):
     __tablename__ = "clone_script_segments"
     id = Column(Integer, primary_key=True, index=True)
     script_id = Column(Integer, ForeignKey("clone_scripts.id", ondelete="CASCADE"))
+    is_novel = Column(Boolean, default=False, comment="该分镜是否属于小说生成")
     start_time = Column(Float, nullable=False)
     end_time = Column(Float, nullable=False)
     shot_description = Column(Text, nullable=True, comment="分镜描述提示词")

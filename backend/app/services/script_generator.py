@@ -623,7 +623,7 @@ class ScriptGenerator:
         # 写入文件
         file_path = folder_path / 'parse_video.md'
         with open(file_path, 'w', encoding='utf-8') as f:
-            f.write(focus_json)
+            f.write(json.dumps(focus_json, ensure_ascii=False))
             f.write(f"\n\n## 分镜脚本\n\n")
             f.write(markdown_data)
 

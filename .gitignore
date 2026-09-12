@@ -36,6 +36,9 @@ LOGS
 
 Parse_Video.egg-info
 
+# TypeScript 增量编译缓存
+*.tsbuildinfo
+
 versions.bak
 videodl_outputs
 
@@ -52,3 +55,4 @@ build/
 # 抖音 cookies（含登录凭据，切勿提交）
 *cookies.txt
 
+tmp_*

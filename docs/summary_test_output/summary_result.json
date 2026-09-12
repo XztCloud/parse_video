@@ -1,0 +1,204 @@
+{
+  "focus": {
+    "role_library": [
+      {
+        "role_name": "黑金铠甲古装男子",
+        "gender": "male",
+        "age": 25,
+        "voice_style_guide": "声音清朗有力，语速适中",
+        "effect": "开场及结尾产品展示，推动剧情收尾"
+      },
+      {
+        "role_name": "浅金纱裙古装女子",
+        "gender": "female",
+        "age": 23,
+        "voice_style_guide": "声音清甜柔和，语调明快",
+        "effect": "开场及结尾产品展示，呼应产品卖点"
+      },
+      {
+        "role_name": "灰须年长古装男子",
+        "gender": "male",
+        "age": 55,
+        "voice_style_guide": "声音厚重沉稳，语调庄重",
+        "effect": "推动剧情反转，引出整颗蓝莓的产品卖点"
+      },
+      {
+        "role_name": "古宫殿君王",
+        "gender": "male",
+        "age": 40,
+        "voice_style_guide": "声音威严粗犷，情绪激动时语调拔高",
+        "effect": "承接剧情冲突，强化反转卖点"
+      },
+      {
+        "role_name": "黑衣劲装男子",
+        "gender": "male",
+        "age": 28,
+        "voice_style_guide": "开头语调紧绷，饮用后转为惊喜放松",
+        "effect": "演示产品饮用过程，展示产品饮用体验"
+      },
+      {
+        "role_name": "拟人化蓝莓帝王",
+        "gender": "male",
+        "age": 25,
+        "voice_style_guide": "声音俏皮戏谑，自带笑意",
+        "effect": "趣味呼应产品卖点，加深观众记忆点"
+      }
+    ],
+    "scene_library": [
+      {
+        "scene_name": "云海奇峰崖顶",
+        "environment_description": "云雾缭绕的户外奇峰崖顶，群山连绵被云海环绕，是开阔大气的古风户外场景",
+        "color_grading": "青灰冷调，明亮通透，高饱和度"
+      },
+      {
+        "scene_name": "古宫殿室内",
+        "environment_description": "中式传统古宫殿内部，配有朱红立柱、传统木构建筑与鎏金龙纹王座，整体氛围庄重肃穆",
+        "color_grading": "暖棕暗调，明暗对比适中，烘托庄重氛围感"
+      },
+      {
+        "scene_name": "黄昏山间石路",
+        "environment_description": "黄昏时分的山间石路，背景是被云雾环绕的奇峰远山，属于开阔户外场景",
+        "color_grading": "暖金黄昏调，光影张力强，氛围感突出"
+      }
+    ],
+    "global_style": {
+      "global_style_suffix": "中式古装权谋美学风格，电影级质感，4K高清分辨率，光影细腻柔和，色彩浓郁协调，整体氛围感强"
+    },
+    "core_shell_point": {
+      "user_pain_point": "普通酸奶的蓝莓果粒碎小不新鲜，无法吃到完整饱满的蓝莓，口感和风味满足感低",
+      "product_usp": [
+        "添加整颗饱满蓝莓，口感丰富满足",
+        "24小时枝头鲜采，保留蓝莓新鲜风味",
+        "安慕希全新推出的酸奶产品"
+      ],
+      "hook_trigger": "开场高颜值古装男女携手在云海奇峰展示产品，紧接着切入紧张的古装权谋珍宝争夺冲突剧情，用反差感强烈的剧情反转勾起观众好奇心",
+      "keywords_to_include": [
+        "安慕希",
+        "整颗蓝莓酸奶",
+        "整颗更好喝",
+        "24小时枝头鲜采",
+        "新品上市"
+      ]
+    }
+  },
+  "plot_script": [
+    {
+      "start_time": 0.3,
+      "end_time": 12.3,
+      "paragraph_theme": "开篇双人展示产品后引出古风争玉剧情，君王为得整颗蓝莓允诺割让城池",
+      "screen_description": "开篇云雾缭绕的奇峰前，身着黑金铠甲的古装男子与身着浅米金纱裙的古装女子并肩微笑面向镜头，各自展示安慕希整颗蓝莓酸奶；随后画面切换至古宫殿室内，灰须年长男子神情凝重肃穆，高高托起雕刻精美卷云龙纹的圆形白玉璧，背景为朱红立柱与中式古建木构；接着画面切换到鎏金龙纹王座前，身着黑底金纹宽袍的君王满脸惊愕震惊，身体前倾伸手向前，呈激动发问状态，随后切回灰须年长男子，其面前摆放着一盘饱满新鲜的蓝莓",
+      "actor_lines": [
+        {
+          "role_name": "灰须长者",
+          "predict_duration": 3.24,
+          "lines": "珍宝若被强夺，不如当场摔碎。",
+          "audio_style": "凝重/低沉/殿内混响"
+        },
+        {
+          "role_name": "君王",
+          "predict_duration": 2.64,
+          "lines": "不要摔，我要整颗蓝莓。",
+          "audio_style": "急切/惊愕/高声"
+        },
+        {
+          "role_name": "灰须长者",
+          "predict_duration": 2.84,
+          "lines": "那之前说好的15个城池。",
+          "audio_style": "沉缓/试探/殿内混响"
+        },
+        {
+          "role_name": "君王",
+          "predict_duration": 1.76,
+          "lines": "给给给，现在就给。",
+          "audio_style": "急切/匆忙/高声"
+        }
+      ],
+      "dialogue": ""
+    },
+    {
+      "start_time": 14.2,
+      "end_time": 16.8,
+      "paragraph_theme": "抛出产品核心宣传语，第一次点题推广",
+      "screen_description": "剧情过渡，带出产品核心卖点宣传",
+      "actor_lines": [
+        {
+          "role_name": "旁白",
+          "predict_duration": 2.64,
+          "lines": "一口安慕希，整颗更好喝。",
+          "audio_style": "清亮/播音/广告诉求"
+        }
+      ],
+      "dialogue": ""
+    },
+    {
+      "start_time": 21.9,
+      "end_time": 23.9,
+      "paragraph_theme": "紧张古装剧情中，黑衣男子饮用产品完成产品展示",
+      "screen_description": "古宫殿殿内，黑发高束着黑衣劲装的男子俯身撑在摊开的卷轴上，神情锐利紧绷，氛围紧迫；随后切换为男子特写，他仰头饮用安慕希整颗蓝莓酸奶，清晰露出瓶身产品字样与图案，完成产品展示",
+      "actor_lines": [
+        {
+          "role_name": "黑衣劲装男子",
+          "predict_duration": 2.0,
+          "lines": "不要伤害我，整颗更好喝。",
+          "audio_style": "慌乱/带喘/殿内声"
+        }
+      ],
+      "dialogue": ""
+    },
+    {
+      "start_time": 28.5,
+      "end_time": 38.5,
+      "paragraph_theme": "展现产品饮用惊喜体验，拟人蓝莓出场，引出崖顶射箭剧情",
+      "screen_description": "饮用完产品的黑衣男子脸部特写，先闭眼放松回味口感，随后骤然睁眼露出惊喜赞叹神情，画面下方打出文字“整颗果然好喝”；接着切回鎏金龙纹王座，拟人化圆滚滚蓝色蓝莓身着黑金烫金帝王袍斜靠王座，配文“我就说嘛”；随后画面切换到云海环绕的奇峰崖顶，身着精致金属铠甲的男子调整姿态，拉满泛着金光的雕弓，画面下方配文“余下这颗”呼应产品卖点",
+      "actor_lines": [
+        {
+          "role_name": "黑衣劲装男子",
+          "predict_duration": 1.12,
+          "lines": "整颗果然好喝！",
+          "audio_style": "惊喜/赞叹/清晰"
+        },
+        {
+          "role_name": "拟人蓝莓",
+          "predict_duration": 2.2,
+          "lines": "我就说嘛，哈哈哈哈哈哈。",
+          "audio_style": "得意/爽朗/带笑"
+        },
+        {
+          "role_name": "铠甲男子",
+          "predict_duration": 4.0,
+          "lines": "九颗已落，余下这颗，看我一箭射下！",
+          "audio_style": "激昂/坚定/带风声"
+        }
+      ],
+      "dialogue": ""
+    },
+    {
+      "start_time": 40.4,
+      "end_time": 49.4,
+      "paragraph_theme": "女子阻拦射箭再次点题，最终展示产品完成推广",
+      "screen_description": "拉满弓的铠甲男子特写，维持瞄准的紧绷姿态，背景是黄昏云山间的奇峰，氛围充满张力；随后切换到山间石路上的浅金纱裙古装女子，左手按腹，右手惊慌伸出，神情急切担忧，镜头推近脸部特写，女子呼喊时画面下方打出配文“整颗蓝莓更好喝”；随后铠甲男子与女子一同站在云海奇峰前，并肩微笑面向镜头，共同展示安慕希整颗蓝莓酸奶，下方配文“整颗更好喝”；最终切换为产品宣传图，居中展示产品瓶身，周围点缀带水珠的新鲜鲜果，标注“24小时枝头鲜采”“新品上市”，打出宣传语“一口安慕希，整颗更好喝”完成推广",
+      "actor_lines": [
+        {
+          "role_name": "古装女子",
+          "predict_duration": 3.32,
+          "lines": "停停，我要整颗的。",
+          "audio_style": "急切/惊慌/山间风声"
+        },
+        {
+          "role_name": "古装女子",
+          "predict_duration": 1.16,
+          "lines": "整颗蓝莓更好喝！",
+          "audio_style": "清晰/急切/宣传感"
+        },
+        {
+          "role_name": "旁白",
+          "predict_duration": 2.52,
+          "lines": "一口安慕希，整颗更好喝！",
+          "audio_style": "清亮/洪亮/广告腔"
+        }
+      ],
+      "dialogue": ""
+    }
+  ],
+  "markdown_table": "|   开始 |   结束 | 对话   |\n|-------:|-------:|:-------|\n|    0.3 |   12.3 |        |\n|   14.2 |   16.8 |        |\n|   21.9 |   23.9 |        |\n|   28.5 |   38.5 |        |\n|   40.4 |   49.4 |        |"
+}

@@ -10,27 +10,37 @@ interface GenerateVideoTabProps {
   onRefresh?: () => Promise<void>;
   parsedScripts?: ScriptItem[];
   clonedScripts?: ScriptItem[];
+  novelScripts?: ScriptItem[];
 }
 
-export default function GenerateVideoTab({ history, onRefresh, parsedScripts, clonedScripts }: GenerateVideoTabProps) {
+export default function GenerateVideoTab({ history, onRefresh, parsedScripts, clonedScripts, novelScripts }: GenerateVideoTabProps) {
   const [showProgress, setShowProgress] = useState(false);
   const [detailModalOpen, setDetailModalOpen] = useState(false);
   const [detailCloneId, setDetailCloneId] = useState<number | null>(null);
   const [detailCloneStatus, setDetailCloneStatus] = useState('');
-  const [genSource, setGenSource] = useState<'parse' | 'copy'>('parse');
+  const [genSource, setGenSource] = useState<'parse' | 'copy' | 'novel'>('parse');
   const [selectedScript, setSelectedScript] = useState<number>(1);
   const [aspectRatio, setAspectRatio] = useState('9:16（竖屏）');
   const [style, setStyle] = useState('真实摄影');
   const [method, setMethod] = useState('本地 comfy 生成');
   const [flowControl, setFlowControl] = useState('人工控制');
 
+  // 取消标志：点击关闭/取消时置 true，用于中断 startGenerate 流程
+  const cancelledRef = useRef(false);
+  // 标记弹窗来源：'generate'=startGenerate 打开，'history'=历史记录打开
+  const modalSourceRef = useRef<'generate' | 'history'>('generate');
+
   // Generation state
   const [totalPercent, setTotalPercent] = useState(0);
   const [currentStepText, setCurrentStepText] = useState('');
+  const manualContinueResolveRef = useRef<(() => void) | null>(null);
+  const manualCancelRef = useRef<(() => void) | null>(null);
 
   const scripts: ScriptItem[] = genSource === 'parse'
     ? (parsedScripts && parsedScripts.length > 0 ? parsedScripts : [])
-    : (clonedScripts && clonedScripts.length > 0 ? clonedScripts : []);
+    : genSource === 'copy'
+      ? (clonedScripts && clonedScripts.length > 0 ? clonedScripts : [])
+      : (novelScripts && novelScripts.length > 0 ? novelScripts : []);
 
   // Carousel state
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -46,12 +56,12 @@ export default function GenerateVideoTab({ history, onRefresh, parsedScripts, cl
 
   // 根据 clone_progress 推断重试步骤
   const getRetryStep = (progress: number): number => {
-    if (progress < 21) return 0;
-    if (progress < 31) return 3;
-    if (progress < 45) return 4;
-    if (progress < 60) return 5;
-    if (progress < 95) return 6;
-    return 7;
+    if (progress < 1) return 0;       // 未开始
+    if (progress <= 10) return 3;     // VOICE:       1 ~ 10
+    if (progress <= 30) return 4;     // IMAGE:      11 ~ 30
+    if (progress <= 50) return 5;     // FRAME:      31 ~ 50
+    if (progress <= 90) return 6;     // SEGMENT_VIDEO: 51 ~ 90
+    return 7;                         // MERGE_VIDEO: 91 ~ 100
   };
   const RETRY_LABELS: Record<number, string> = { 3: '配音', 4: '生图', 5: '参考帧', 6: '分镜视频', 7: '合并成片' };
   const [retryLoading, setRetryLoading] = useState<number | null>(null);
@@ -70,20 +80,54 @@ export default function GenerateVideoTab({ history, onRefresh, parsedScripts, cl
     }
   }, [onRefresh]);
 
+  /** 人工控制：打开 Modal 展示结果，暂停等待用户点击「继续」或关闭取消 */
+  const waitManual = useCallback((cloneScriptId: number, status: string) => {
+    return new Promise<void>((resolve, reject) => {
+      manualContinueResolveRef.current = () => {
+        manualContinueResolveRef.current = null;
+        manualCancelRef.current = null;
+        resolve();
+      };
+      manualCancelRef.current = () => {
+        manualContinueResolveRef.current = null;
+        manualCancelRef.current = null;
+        cancelledRef.current = true;
+        setDetailModalOpen(false);
+        resolve();
+      };
+      setDetailCloneId(cloneScriptId);
+      setDetailCloneStatus(status);
+      modalSourceRef.current = 'generate';
+      setDetailModalOpen(true);
+    });
+  }, []);
+
+  const handleManualContinue = useCallback(() => {
+    if (manualContinueResolveRef.current) {
+      const resolve = manualContinueResolveRef.current;
+      manualContinueResolveRef.current = null;
+      manualCancelRef.current = null;
+      setDetailModalOpen(false);
+      resolve();
+    }
+  }, []);
+
   /** 轮询 clone 状态直到进入目标阶段 */
   const pollCloneStatus = useCallback((cloneScriptId: number, targetStatuses: string[]): Promise<string> => {
     return new Promise((resolve, reject) => {
       const pollInterval = setInterval(async () => {
         try {
           const st = await getCloneStatus(cloneScriptId);
-          if (st.clone_status === 'FAILED') {
+          // 检查 clone_status 和 generate_flow_status
+          const currentStatus = st.generate_flow_status || st.clone_status;
+          if (currentStatus === 'FAILED' || st.clone_status === 'FAILED') {
             clearInterval(pollInterval);
             reject(new Error(st.error_message || '任务执行失败'));
             return;
           }
-          if (targetStatuses.includes(st.clone_status)) {
+          if (targetStatuses.includes(currentStatus) || targetStatuses.includes(st.clone_status)) {
             clearInterval(pollInterval);
-            resolve(st.clone_status);
+            resolve(currentStatus);
             return;
           }
         } catch {}
@@ -96,14 +140,15 @@ export default function GenerateVideoTab({ history, onRefresh, parsedScripts, cl
     if (!selected) { alert('请先选择一个剧本'); return; }
 
     const autoRun = flowControl === '自动';
+    cancelledRef.current = false;
     setShowProgress(true);
-    setTotalPercent(5);
+    setTotalPercent(0);
     setCurrentStepText('正在准备...');
 
     try {
       let cloneScriptId: number;
 
-      if (selected.sourceType === 'copy' && selected.sourceId) {
+      if ((selected.sourceType === 'copy' || selected.sourceType === 'novel') && selected.sourceId) {
         cloneScriptId = selected.sourceId;
         setCurrentStepText('已就绪，开始配音...');
       } else {
@@ -114,62 +159,68 @@ export default function GenerateVideoTab({ history, onRefresh, parsedScripts, cl
           autoRun: false, style: null, product: null, productDesc: null,
         });
         cloneScriptId = plotRes.id;
-        setTotalPercent(10);
 
-        setCurrentStepText('剧本创作中...');
-        await pollCloneStatus(cloneScriptId, ['PLOT_DONE']);
-        setTotalPercent(20);
-
-        setCurrentStepText('分镜创作中...');
-        await clonePhase(cloneScriptId, 2, false);
+        // clone_plot 会在同一后端任务里自动完成「剧本 + 分镜」，直接等 SEGMENTS_DONE 即可
+        setCurrentStepText('剧本与分镜创作中...');
         await pollCloneStatus(cloneScriptId, ['SEGMENTS_DONE']);
-        setTotalPercent(30);
       }
 
+      if (cancelledRef.current) return;
+
       setCurrentStepText('配音生成中...');
-      setTotalPercent(35);
       await clonePhase(cloneScriptId, 3, autoRun);
 
       if (autoRun) {
         setCurrentStepText('自动生成中...');
-        await pollCloneStatus(cloneScriptId, ['DONE']);
+        await pollCloneStatus(cloneScriptId, ['MERGE_VIDEO_DONE']);
         setTotalPercent(100);
         setCurrentStepText('视频生成完成！');
       } else {
         await pollCloneStatus(cloneScriptId, ['VOICE_DONE']);
-        setTotalPercent(45);
+        setCurrentStepText('配音完成');
+        await waitManual(cloneScriptId, 'VOICE_DONE');
+
+        if (cancelledRef.current) return;
 
         setCurrentStepText('生图中...');
         await clonePhase(cloneScriptId, 4, false);
         await pollCloneStatus(cloneScriptId, ['IMAGE_DONE']);
-        setTotalPercent(60);
+        setCurrentStepText('生图完成');
+        await waitManual(cloneScriptId, 'IMAGE_DONE');
+
+        if (cancelledRef.current) return;
 
         setCurrentStepText('参考帧生成中...');
         await clonePhase(cloneScriptId, 5, false);
         await pollCloneStatus(cloneScriptId, ['FRAME_DONE']);
-        setTotalPercent(75);
+        setCurrentStepText('参考帧完成');
+        await waitManual(cloneScriptId, 'FRAME_DONE');
+
+        if (cancelledRef.current) return;
 
         setCurrentStepText('分镜视频生成中...');
         await clonePhase(cloneScriptId, 6, false);
         await pollCloneStatus(cloneScriptId, ['SEGMENT_VIDEO_DONE']);
-        setTotalPercent(90);
+        setCurrentStepText('分镜视频完成');
+        await waitManual(cloneScriptId, 'SEGMENT_VIDEO_DONE');
+
+        if (cancelledRef.current) return;
 
         setCurrentStepText('合并成片中...');
         await clonePhase(cloneScriptId, 7, false);
-        await pollCloneStatus(cloneScriptId, ['DONE']);
+        await pollCloneStatus(cloneScriptId, ['MERGE_VIDEO_DONE']);
         setTotalPercent(100);
         setCurrentStepText('视频生成完成！');
       }
-
-      if (onRefresh) await onRefresh();
     } catch (e: any) {
       console.error('生成视频失败:', e);
       setCurrentStepText(`生成失败: ${e?.message || '未知错误'}`);
       setTotalPercent(0);
     } finally {
+      if (onRefresh) await onRefresh();
       setTimeout(() => setShowProgress(false), 2000);
     }
-  }, [scripts, selectedScript, flowControl, style, onRefresh, pollCloneStatus]);
+  }, [scripts, selectedScript, flowControl, onRefresh, pollCloneStatus]);
 
   return (
     <div>
@@ -199,6 +250,10 @@ export default function GenerateVideoTab({ history, onRefresh, parsedScripts, cl
             <button onClick={() => { setGenSource('copy'); setSelectedScript(1); setGenCurrentPage(0); }}
               className={`px-5 py-2.5 rounded-xl text-sm font-medium transition-all ${genSource === 'copy' ? 'bg-gradient-to-r from-purple-500 to-pink-500 text-white shadow-md' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>
               复制的剧本
+            </button>
+            <button onClick={() => { setGenSource('novel'); setSelectedScript(1); setGenCurrentPage(0); }}
+              className={`px-5 py-2.5 rounded-xl text-sm font-medium transition-all ${genSource === 'novel' ? 'bg-gradient-to-r from-indigo-500 to-blue-500 text-white shadow-md' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>
+              来自小说的剧本
             </button>
           </div>
 
@@ -264,7 +319,7 @@ export default function GenerateVideoTab({ history, onRefresh, parsedScripts, cl
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-2">流程控制</label>
             <select value={flowControl} onChange={(e) => setFlowControl(e.target.value)} className="w-full px-4 py-3 bg-slate-50/80 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-pink-500 focus:border-transparent focus:bg-white transition-all text-sm">
-              <option>自动</option><option>人工控制</option>
+              <option>人工控制</option><option>自动</option>
             </select>
           </div>
         </div>
@@ -335,13 +390,13 @@ export default function GenerateVideoTab({ history, onRefresh, parsedScripts, cl
                     const DONE_LABELS: Record<string, string> = {
                       VOICE_DONE: '音频完成', IMAGE_DONE: '生图完成',
                       FRAME_DONE: '帧合成完成', SEGMENT_VIDEO_DONE: '分镜视频完成',
-                      MERGE_VIDEO_DONE: '合成中', DONE: '已完成',
+                      MERGE_VIDEO_DONE: '已完成', DONE: '已完成',
                     };
                     const label = (item.cloneStatus && DONE_LABELS[item.cloneStatus]) || '已完成';
                     return (
                       <>
                         <span className="px-3 py-1 text-xs font-medium bg-green-100 text-green-700 rounded-full">{label}</span>
-                        <button onClick={() => { setDetailCloneId(item.cloneScriptId || null); setDetailCloneStatus(item.cloneStatus || ''); setDetailModalOpen(true); }}
+                        <button onClick={() => { modalSourceRef.current = 'history'; setDetailCloneId(item.cloneScriptId || null); setDetailCloneStatus(item.cloneStatus || ''); setDetailModalOpen(true); }}
                           className="px-4 py-2 text-sm text-pink-600 hover:bg-pink-50 rounded-lg transition-colors font-medium">查看详情</button>
                       </>
                     );
@@ -355,7 +410,7 @@ export default function GenerateVideoTab({ history, onRefresh, parsedScripts, cl
                           {retryLoading === item.cloneScriptId ? '重试中...' : `重试${RETRY_LABELS[getRetryStep(item.stepPercent!)] || ''}`}
                         </button>
                       )}
-                      <button onClick={() => { setDetailCloneId(item.cloneScriptId || null); setDetailCloneStatus(item.cloneStatus || ''); setDetailModalOpen(true); }}
+                      <button onClick={() => { modalSourceRef.current = 'history'; setDetailCloneId(item.cloneScriptId || null); setDetailCloneStatus(item.cloneStatus || ''); setDetailModalOpen(true); }}
                         className="px-4 py-2 text-sm text-pink-600 hover:bg-pink-50 rounded-lg transition-colors font-medium">查看详情</button>
                     </>
                   ) : (
@@ -363,7 +418,7 @@ export default function GenerateVideoTab({ history, onRefresh, parsedScripts, cl
                       <span className="px-3 py-1 text-xs font-medium bg-pink-100 text-pink-700 rounded-full flex items-center gap-1">
                         <span className="w-1.5 h-1.5 bg-pink-500 rounded-full animate-pulse" /> 生成中
                       </span>
-                      <button onClick={() => { setDetailCloneId(item.cloneScriptId || null); setDetailCloneStatus(item.cloneStatus || ''); setDetailModalOpen(true); }}
+                      <button onClick={() => { modalSourceRef.current = 'history'; setDetailCloneId(item.cloneScriptId || null); setDetailCloneStatus(item.cloneStatus || ''); setDetailModalOpen(true); }}
                         className="px-4 py-2 text-sm text-pink-600 hover:bg-pink-50 rounded-lg transition-colors font-medium">查看详情</button>
                     </>
                   )}
@@ -375,9 +430,21 @@ export default function GenerateVideoTab({ history, onRefresh, parsedScripts, cl
       </div>
 
       {/* 生成资产详情弹窗 */}
-      <GenerateDetailModal isOpen={detailModalOpen} onClose={() => setDetailModalOpen(false)}
+      <GenerateDetailModal isOpen={detailModalOpen} onClose={() => {
+        if (modalSourceRef.current === 'generate') {
+          cancelledRef.current = true;
+          if (manualCancelRef.current) {
+            manualCancelRef.current();
+          }
+          setShowProgress(false);
+          setCurrentStepText('已取消');
+        }
+        setDetailModalOpen(false);
+        if (onRefresh) onRefresh();
+      }}
         cloneScriptId={detailCloneId} cloneStatus={detailCloneStatus}
-        isManual={flowControl === '人工控制'} onRefresh={onRefresh} />
+        isManual={flowControl === '人工控制'} onRefresh={onRefresh}
+        onManualContinue={handleManualContinue} isHistory={modalSourceRef.current === 'history'} />
     </div>
   );
 }

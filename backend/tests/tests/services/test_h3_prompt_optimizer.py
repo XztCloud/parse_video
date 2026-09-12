@@ -324,3 +324,17 @@ class TestBuildGroupInput:
         for shot in input_json["shots"]:
             for rv in shot["role_view_info"]:
                 assert rv["role_name"] != "旁白"
+
+    def test_dialogue_carries_audio_timeline_fields(self):
+        """对口型/跨镜长台词：dialogue 需携带 lines_flag / start_offset / end_offset。"""
+        group, scene_images, role_images = self._group_with_assets()
+        # 头镜台词带跨镜信息，供 LLM 对齐音频切片与 <scenetrans> 续接
+        group[0]["dialogue"][0].update(
+            {"lines_flag": "head", "start_offset": 0.0, "end_offset": 2.0}
+        )
+        input_json, _ = _build_group_input(group, scene_images, role_images)
+        d = input_json["shots"][0]["dialogue"][0]
+        assert d["lines_flag"] == "head"
+        assert d["start_offset"] == 0.0
+        assert d["end_offset"] == 2.0
+        assert d["role_name"] == "秦王" and d["lines"] == "第一句" and d["audio_style"] == "威严"

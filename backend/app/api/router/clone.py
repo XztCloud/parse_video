@@ -85,7 +85,9 @@ async def clone_plot(request: Request, request_data: ClonePlotRequest, db: Async
             clone_theme=merge_theme,
             clone_requirements=clone_requirements,
         )
-        clone_video_task.delay(clone_script.id, 1, request_data.auto_run)
+        # 复刻剧本默认自动跑到分镜(step1+2)并停在 SEGMENTS_DONE；autoRun=true 才继续到成片
+        stop_step = 8 if request_data.auto_run else 2
+        clone_video_task.delay(clone_script.id, 1, True, stop_step)
         return {
             "id": clone_script.id,
             "theme": merge_theme,
@@ -109,7 +111,8 @@ async def re_clone_plot(request: ReClonePlotRequest, db: AsyncSessionDep):
         if not clone_script:
             raise HTTPException(status_code=404, detail="复刻视频脚本不存在，请先生成视频脚本")
 
-        clone_video_task.delay(clone_script.id, 1, request.auto_run)
+        stop_step = 8 if request.auto_run else 2
+        clone_video_task.delay(clone_script.id, 1, True, stop_step)
         return {
             "id": clone_script.id,
             "theme": clone_script.clone_theme,
@@ -133,6 +136,8 @@ async def get_clone_status(clone_script_id: int, db: AsyncSessionDep):
             "id": clone_script.id,
             "clone_status": clone_service.clone_status_value(clone_script.clone_status),
             "clone_progress": clone_script.clone_progress or 0,
+            "generate_flow_status": clone_service.generate_flow_status_value(clone_script.generate_flow_status),
+            "generate_flow_progress": clone_script.generate_flow_progress or 0,
             "error_message": clone_script.clone_error_message,
         }
     except Exception as e:
@@ -160,6 +165,8 @@ async def list_clone_scripts(script_id: int, db: AsyncSessionDep, offset: int = 
                 "clone_theme": cs.clone_theme,
                 "clone_status": clone_service.clone_status_value(cs.clone_status),
                 "clone_progress": cs.clone_progress,
+                "generate_flow_status": clone_service.generate_flow_status_value(cs.generate_flow_status),
+                "generate_flow_progress": cs.generate_flow_progress or 0,
                 "error_message": cs.clone_error_message,
             }
             for cs in clone_scripts
@@ -371,11 +378,18 @@ async def clone_phase(request: ClonePhaseRequest, db: AsyncSessionDep):
     try:
         logger.info(f'clone_phase receive request: {request.model_dump()}')
         clone_script = await clone_service.advance_clone_step(db, request.clone_script_id, request.step)
+        # 配音完成后、进入会用时间的阶段（生图/分镜视频）前，先校准分镜时间轴（幂等），
+        # 保证下游拿到的分镜时长与真实音轨一致。voice 图结束时已校准一次，这里兜底旧状态。
+        # 注：step 7 合并时视频已生成，不重排，避免与已有分镜视频脱节。
+        if request.step in (4, 6):
+            await clone_service.sync_segment_timeline(request.clone_script_id, db=db)
         clone_video_task.delay(clone_script.id, request.step, request.auto_run)
         return {
             "id": clone_script.id,
             "status": clone_script.clone_status,
             "progress": clone_script.clone_progress,
+            "generate_flow_status": clone_script.generate_flow_status,
+            "generate_flow_progress": clone_script.generate_flow_progress
         }
     except HTTPException:
         raise

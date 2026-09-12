@@ -11,6 +11,17 @@ interface ParseVideoTabProps {
   onRefresh?: () => void;
 }
 
+/** 从 Axios 错误中安全提取错误消息字符串 */
+function extractErrorMessage(err: any, fallback: string): string {
+  const detail = err?.response?.data?.detail;
+  if (!detail) return err?.message || fallback;
+  if (typeof detail === 'string') return detail;
+  if (Array.isArray(detail)) {
+    return detail.map((d: any) => d.msg || String(d)).join('; ');
+  }
+  return String(detail);
+}
+
 export default function ParseVideoTab({ history, onHistoryChange, onViewDetail, onRefresh }: ParseVideoTabProps) {
   const [showProgress, setShowProgress] = useState(false);
   const [progressPercent, setProgressPercent] = useState(0);
@@ -74,6 +85,14 @@ export default function ParseVideoTab({ history, onHistoryChange, onViewDetail, 
           if (pollRef.current) clearInterval(pollRef.current);
           setProgressTitle('解析失败');
           setProgressText(data.error_message || '解析过程出错，请重试');
+
+          // 更新历史记录状态为 failed
+          const errorMsg = data.error_message || '解析失败';
+          onHistoryChange(prev => prev.map(h =>
+            h.id === videoId ? { ...h, status: 'failed', time: `失败: ${errorMsg}` } : h
+          ));
+
+          onRefresh?.();
           setTimeout(() => {
             setShowProgress(false);
             setProgressPercent(0);
@@ -111,7 +130,7 @@ export default function ParseVideoTab({ history, onHistoryChange, onViewDetail, 
       const res = await uploadVideo(file);
       pollVideoStatus(res.id, file.name);
     } catch (err: any) {
-      const msg = err.response?.data?.detail || err.message || '上传失败';
+      const msg = extractErrorMessage(err, '上传失败');
       setProgressTitle('上传失败');
       setProgressText(msg);
       setTimeout(() => {
@@ -127,16 +146,21 @@ export default function ParseVideoTab({ history, onHistoryChange, onViewDetail, 
       alert('请输入视频链接');
       return;
     }
+
+    // 从分享文案中提取 URL（用户可能粘贴整段抖音分享文字）
+    const urlMatch = videoUrl.match(/https?:\/\/[^\s]+/);
+    const extractedUrl = urlMatch ? urlMatch[0] : videoUrl.trim();
+
     setShowProgress(true);
     setProgressTitle('正在解析视频...');
     setProgressPercent(0);
     setProgressText('正在解析抖音链接...');
 
     try {
-      const res = await parseDouyin(videoUrl.trim());
+      const res = await parseDouyin(extractedUrl);
       pollVideoStatus(res.id, '抖音分享视频');
     } catch (err: any) {
-      const msg = err.response?.data?.detail || err.message || '解析失败';
+      const msg = extractErrorMessage(err, '解析失败');
       setProgressTitle('解析失败');
       setProgressText(msg);
       setTimeout(() => {
@@ -243,7 +267,7 @@ export default function ParseVideoTab({ history, onHistoryChange, onViewDetail, 
               type="text"
               value={videoUrl}
               onChange={(e) => setVideoUrl(e.target.value)}
-              placeholder="粘贴抖音分享链接，例如 https://v.douyin.com/xxxxx/"
+              placeholder="粘贴抖音分享链接或整段分享文案，自动提取URL"
               className="w-full pl-14 pr-4 py-3.5 bg-slate-50/80 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent focus:bg-white transition-all text-sm"
             />
           </div>
@@ -342,6 +366,8 @@ export default function ParseVideoTab({ history, onHistoryChange, onViewDetail, 
                         查看详情
                       </button>
                     </>
+                  ) : item.status === 'failed' ? (
+                    <span className="px-3 py-1 text-xs font-medium bg-red-100 text-red-700 rounded-full">解析失败</span>
                   ) : (
                     <span className="px-3 py-1 text-xs font-medium bg-indigo-100 text-indigo-700 rounded-full flex items-center gap-1">
                       <span className="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-pulse" />

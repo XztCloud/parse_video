@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useCallback, useEffect } from "react";
-import { clonePlot, cloneSegments, getCloneStatus, listAllCloneScripts } from "@/lib/api";
+import { clonePlot, getCloneStatus, listAllCloneScripts } from "@/lib/api";
 import { CopyHistoryItem } from "./data";
 
 interface CopyScriptTabProps {
@@ -85,17 +85,14 @@ export default function CopyScriptTab({ history, onHistoryChange, onViewDetail, 
         };
       })
     : [
-        { id: '1', tag: '美食探店', title: '美食探店vlog：北京胡同里的百年老店', info: '时长 2:35', color: 'from-indigo-400 to-purple-500' },
-        { id: '2', tag: '知识科普', title: '为什么太空是黑色的？光速也有边界', info: '时长 1:48', color: 'from-orange-400 to-red-500' },
-        { id: '3', tag: '生活技巧', title: '3个超实用的手机隐藏功能', info: '时长 0:58', color: 'from-emerald-400 to-teal-500' },
-        { id: '4', tag: '情感语录', title: '成年人的世界，没有容易二字', info: '时长 1:20', color: 'from-pink-400 to-rose-500' },
+        
       ];
 
   const themePresets = [
-    { emoji: '😂', label: '搞笑幽默版' },
-    { emoji: '📚', label: '专业干货版' },
-    { emoji: '💝', label: '情感治愈版' },
-    { emoji: '🎭', label: '反转剧情版' },
+    { emoji: '😂', label: '搞笑幽默' },
+    { emoji: '📚', label: '专业干货' },
+    { emoji: '💝', label: '情感治愈' },
+    { emoji: '🎭', label: '反转剧情' },
   ];
 
   const productPresets = [
@@ -156,6 +153,7 @@ export default function CopyScriptTab({ history, onHistoryChange, onViewDetail, 
             progress: item.clone_progress,
             cloneScriptId: item.id,
             cloneStatus: item.clone_status,
+            sourceType: item.source_type,
           };
         });
         onHistoryChange(prev => {
@@ -261,6 +259,7 @@ export default function CopyScriptTab({ history, onHistoryChange, onViewDetail, 
       product: productLabel,
       progress: 5,
       cloneStatus: 'PLOT',
+      sourceType: 'CLONE',
     };
     onHistoryChange([newItem, ...history]);
 
@@ -283,21 +282,8 @@ export default function CopyScriptTab({ history, onHistoryChange, onViewDetail, 
         h.id === newItem.id ? { ...h, cloneScriptId } : h
       ));
 
-      // 2. 轮询等待剧本创作完成
-      await pollUntil(cloneScriptId, ['PLOT_DONE']);
-
-      // 3. 剧本完成，开始分镜创作
-      setActiveStatusText('分镜创作中');
-      setActiveProgress(31);
-      onHistoryChange(prev => prev.map(h =>
-        h.cloneScriptId === cloneScriptId
-          ? { ...h, status: 'processing', cloneStatus: 'SEGMENTS', progress: 31 }
-          : h
-      ));
-
-      await cloneSegments(cloneScriptId);
-
-      // 4. 轮询等待分镜创作完成
+      // 2. 后端在 clone_plot 的同一个任务里自动完成「剧本创作 + 分镜创作」，
+      //    这里只需一次轮询到分镜完成（SEGMENTS_DONE），避免前端二次触发丢请求
       await pollUntil(cloneScriptId, ['SEGMENTS_DONE']);
 
       // 5. 全部完成
@@ -328,11 +314,6 @@ export default function CopyScriptTab({ history, onHistoryChange, onViewDetail, 
       }, 3000);
     }
   }, [copyTheme, productSwap, selectedSource, isCreating, history, onHistoryChange, sourceScripts, pollUntil, cleanupPoll]);
-
-  // 组件卸载时清理轮询
-  const handleUnmount = useCallback(() => {
-    cleanupPoll();
-  }, [cleanupPoll]);
 
   const getPaginationDots = (): number[] => {
     if (totalPages <= 3) {
@@ -538,7 +519,7 @@ export default function CopyScriptTab({ history, onHistoryChange, onViewDetail, 
         </div>
 
         <div className="divide-y divide-slate-100">
-          {history.map((item) => {
+          {history.filter(item => item.sourceType === 'CLONE').map((item) => {
             const ds = statusDisplay(item.cloneStatus);
             const displayStatus = item.status || ds.status;
             return (
@@ -597,7 +578,7 @@ export default function CopyScriptTab({ history, onHistoryChange, onViewDetail, 
           })}
         </div>
 
-        {history.length === 0 && (
+        {history.filter(item => item.sourceType === 'CLONE').length === 0 && (
           <div className="p-12 text-center text-slate-400 text-sm">
             暂无复制记录，选择源剧本开始创作吧
           </div>

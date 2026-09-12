@@ -25,6 +25,27 @@ DEFAULT_LOG_BACKUP_COUNT = 5
 MAX_DURATION_SECONDS = 180.0 # 最大允许时长：3分钟 (180秒)
 MAX_FILE_SIZE = 200 * 1024 * 1024 # 最大允许文件大小：200 MB
 
+PLOT_BEGIN_PROGRESS = 5
+PLOT_COMPLETE_PROGRESS = 40
+
+SEGMENT_BEGIN_PROGRESS = 41
+SEGMENT_COMPLETE_PROGRESS = 100
+
+VOICE_BEGIN_PROGRESS = 1
+VOICE_COMPLETE_PROGRESS = 10
+
+IMAGE_BEGIN_PROGRESS = 11
+IMAGE_COMPLETE_PROGRESS = 30
+
+FRAME_BEGIN_PROGRESS = 31
+FRAME_COMPLETE_PROGRESS = 50
+
+SEGMENT_VIDEO_BEGIN_PROGRESS = 51
+SEGMENT_VIDEO_COMPLETE_PROGRESS = 90
+
+MERGE_VIDEO_BEGIN_PROGRESS = 91
+MERGE_VIDEO_COMPLETE_PROGRESS = 100
+
 logger = logging.getLogger("parse_video")
 
 class REGENERATE_TYPE(enum.Enum):
@@ -77,11 +98,20 @@ class ImageRegenerateResponse(BaseModel):
     
 
 def make_dir(dir_path: str|Path, re_create: bool=True):
+    """创建文件夹
+
+    Args:
+        dir_path (str | Path): 文件夹路径
+        re_create (bool, optional): 是否重新创建。Defaults to True.
+    """
     target_dir = Path(dir_path)
     
-    if target_dir.exists() and re_create:
-        # 如果存在，使用 rmtree 递归删除该文件夹及其内部的所有子文件和子文件夹
-        shutil.rmtree(target_dir)
+    if target_dir.exists():
+        if re_create:
+            # 如果存在，使用 rmtree 递归删除该文件夹及其内部的所有子文件和子文件夹
+            shutil.rmtree(target_dir)
+        else:
+            return  # 如果不重新创建，直接返回
         
     # 重新创建这个文件夹
     # parents=True: 如果上级目录不存在，会自动连同上级目录一起创建
@@ -386,7 +416,7 @@ def get_video_duration_ffprobe(save_path: str) -> float:
     """
     try:
         probe = ffmpeg.probe(save_path)
-        
+
         if 'format' in probe and 'duration' in probe['format']:
             return float(probe['format']['duration'])
 
@@ -394,11 +424,131 @@ def get_video_duration_ffprobe(save_path: str) -> float:
         video_streams = [s for s in probe.get('streams', []) if s.get('codec_type') == 'video']
         if video_streams and 'duration' in video_streams[0]:
             return float(video_streams[0]['duration'])
-            
+
         raise ValueError("视频文件中未能找到有效的时长信息 (duration)")
-    
+
     except ffmpeg.Error as e:
         error_msg = e.stderr.decode('utf-8') if e.stderr else str(e)
         raise ValueError(f"FFprobe 解析视频失败: {error_msg}")
+
+
+def run_ffmpeg(cmd: list[str], error_prefix: str) -> None:
+    """执行一条 ffmpeg 命令，失败时抛 RuntimeError，附 stderr 尾部。
+
+    合并分镜、旁白合入等都用它，统一 ffmpeg 失败的上浮形式。
+    """
+    import subprocess
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        stderr_tail = (result.stderr or "")[-3000:]
+        raise RuntimeError(f"{error_prefix}:\n{stderr_tail}")
     
     
+import asyncio
+import uuid
+from contextlib import asynccontextmanager
+
+import redis.asyncio as redis
+
+
+class RedisSemaphore:
+    def __init__(
+        self,
+        redis_client: redis.Redis,
+        name: str,
+        limit: int,
+        ttl: int = 300,
+        retry_interval: float = 0.1,
+    ):
+        self.redis = redis_client
+        self.name = name
+        self.limit = limit
+        self.ttl = ttl
+        self.retry_interval = retry_interval
+
+    async def acquire(self, timeout: float | None = None) -> str:
+        token = str(uuid.uuid4())
+
+        loop = asyncio.get_running_loop()
+        start = loop.time()
+
+        while True:
+            result = await self.redis.eval(
+                """
+                local key = KEYS[1]
+                local token = ARGV[1]
+                local limit = tonumber(ARGV[2])
+                local ttl = tonumber(ARGV[3])
+
+                -- Redis 当前时间
+                local t = redis.call('TIME')
+                local now = tonumber(t[1])
+
+                -- 清理过期锁
+                redis.call(
+                    'ZREMRANGEBYSCORE',
+                    key,
+                    '-inf',
+                    now
+                )
+
+                local count = redis.call('ZCARD', key)
+
+                if count < limit then
+                    redis.call(
+                        'ZADD',
+                        key,
+                        now + ttl,
+                        token
+                    )
+
+                    return 1
+                end
+
+                return 0
+                """,
+                1,
+                self.name,
+                token,
+                self.limit,
+                self.ttl,
+            )
+
+            if result == 1:
+                return token
+
+            if timeout is not None:
+                if loop.time() - start >= timeout:
+                    raise TimeoutError(
+                        f"获取并发槽位超时: {self.name}"
+                    )
+
+            await asyncio.sleep(self.retry_interval)
+
+    async def release(self, token: str):
+        await self.redis.zrem(
+            self.name,
+            token,
+        )
+
+    @asynccontextmanager
+    async def slot(self, timeout: float | None = None):
+        token = await self.acquire(timeout)
+
+        try:
+            yield
+        finally:
+            await self.release(token)
+        
+from redis.asyncio import Redis
+
+# 初始化 Redis 客户端
+redis_client = Redis.from_url(settings.REDIS_URL)
+
+
+runninghub_api_semaphore = RedisSemaphore(
+    redis_client=redis_client,
+    name="global:external_api",
+    limit=1,
+    ttl=300,
+)

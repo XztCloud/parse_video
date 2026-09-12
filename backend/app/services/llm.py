@@ -23,7 +23,7 @@ class CharacterInfo(BaseModel):
         ...,
         description="角色在剧本中的唯一名称。例如：'女高管'、'男程序员'、'旁白'。"
     )
-    gender: Literal['male', 'female'] = Field(description="角色的性别。")
+    gender: Literal['male', 'female'] = Field(description="角色的性别，如果剧本未指定，请根据输入文本选择一个合适的性别")
     age: int = Field(description="角色的具体年龄或大致年龄段（如 25），用于控制 TTS 的声音成熟度和生图的年龄感。")
     voice_style_guide: Optional[str] = Field(
         default=None,
@@ -560,6 +560,7 @@ async def ainvoke_structured_robust(
     try:
         return await structured_model.ainvoke(messages, config=config)
     except Exception as e:
+        logger.exception('llm 结构化结果获取失败')
         logger.warning(f'{name} structured output failed, fallback to manual parse: {str(e)[:200]}')
         raw = await model.ainvoke(messages, config=config)
         content = raw.content if isinstance(raw.content, str) else str(raw.content)
