@@ -9,6 +9,7 @@ const titles: Record<string, { title: string; desc: string }> = {
   novel: { title: '小说转剧本', desc: '粘贴小说内容，AI 一键转换为分镜剧本' },
   copy: { title: '复制剧本', desc: '基于已有剧本，AI 创意改写生成新版本' },
   generate: { title: '生成视频', desc: '选择剧本，四步流水线生成专业视频' },
+  admin: { title: '管理员', desc: '查看所有账号，激活后可生成配音/图片/视频' },
 };
 
 export default function Header({ activeTab }: HeaderProps) {

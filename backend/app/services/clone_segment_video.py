@@ -13,7 +13,7 @@ from app.tasks.process_loop_manager import process_loop
 from celery.utils.log import get_task_logger
 from app.config import settings
 from app.models.script import CloneScript, CloneScriptSegment, CloneSegmentImg, CloneSegmentVideo, CloneVoice, GenerateFlowStatus, GenerateStatus
-from app.util import SEGMENT_VIDEO_BEGIN_PROGRESS, SEGMENT_VIDEO_COMPLETE_PROGRESS, get_md5, make_dir, run_ffmpeg
+from app.util import SEGMENT_VIDEO_BEGIN_PROGRESS, SEGMENT_VIDEO_COMPLETE_PROGRESS, get_md5, make_dir, run_ffmpeg, resolve_generation_method, normalize_requirements
 from app.services.clone_service import SEGMENT_CONTINUATION_PAD
 from app.services.gen_image import GenImage, GenVideoParams, ReferImageInfo, VideoSize
 from app.services.h3_prompt_optimizer import optimize_script_prompts
@@ -22,6 +22,13 @@ logger = get_task_logger(__name__)
 
 # 旁白/画外音角色名关键词（命中视为旁白，不写入口型参考音频）
 NARRATION_ROLE_KEYWORDS = ("旁白", "解说", "配音", "画外音", "narrator", "voiceover", "narration")
+
+# 用户选择的视频比例 → 生成尺寸（缺省沿用历史行为 16:9/864x480）
+_ASPECT_TO_VIDEO_SIZE = {
+    '16:9': VideoSize.SIZE_864x480,
+    '9:16': VideoSize.SIZE_480x848,
+    '1:1': VideoSize.SIZE_512x512,
+}
 
 
 class RefAudio(NamedTuple):
@@ -482,9 +489,18 @@ async def generate_segments_video_minimax_h3(clone_script_id: int, go_head: bool
         clone_script.generate_flow_progress = SEGMENT_VIDEO_BEGIN_PROGRESS
         await db.commit()
 
+        # 解析本次生成方式（用户选择优先，缺省回退环境开关）与目标尺寸
+        requirements = normalize_requirements(clone_script.clone_requirements)
+        use_local = resolve_generation_method(requirements, settings.USE_COMFY_VIDEO) == 'local'
+        video_size = _ASPECT_TO_VIDEO_SIZE.get(requirements.get('aspect_ratio'), VideoSize.SIZE_864x480)
+        logger.info(
+            f'[video] 生成方式={"本地comfy" if use_local else "云端API"} '
+            f'比例={requirements.get("aspect_ratio")} 尺寸={video_size.value}'
+        )
+
         # 1. 生成符合minimax_h3的提示词（runninghub 打开 merge_segments 合并连续分镜）
-        merge_segments = not settings.USE_COMFY_VIDEO
-        if not settings.USE_COMFY_VIDEO:
+        merge_segments = not use_local
+        if not use_local:
             # 仅 runninghub 分支预载分镜 + 配音时长（音频切片用；comfy 分支不浪费 DB 查询）
             all_segments, voice_durations = await _load_segment_audio_assets(clone_script_id, db)
         else:
@@ -528,13 +544,13 @@ async def generate_segments_video_minimax_h3(clone_script_id: int, go_head: bool
             save_dir = settings.UPLOAD_DIR + '/clone_' + str(clone_script_id) + '/segment_' + str(i)
             make_dir(save_dir, re_create=False)
 
-            if settings.USE_COMFY_VIDEO:
+            if use_local:
                 # —— 本地 Comfy 分支 ——
                 await upload_asset(ref_pictures)
                 logger.info(f'refer image is {ref_pictures}')
                 gen_video_params = GenVideoParams(
                     prompt=segment_param['prompt'],
-                    video_size=VideoSize.SIZE_864x480,
+                    video_size=video_size,
                     duration=segment_param['duration'],
                     rate=24,
                     refer_images=ref_pictures,
@@ -547,7 +563,7 @@ async def generate_segments_video_minimax_h3(clone_script_id: int, go_head: bool
                 )
                 gen_video_params = GenVideoParams(
                     prompt=segment_param['prompt'],
-                    video_size=VideoSize.SIZE_864x480,
+                    video_size=video_size,
                     duration=segment_param['duration'],
                     rate=24,
                     refer_images=ref_pictures + [ReferImageInfo(type='audio', path=ref.path)],

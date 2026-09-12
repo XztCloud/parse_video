@@ -203,8 +203,9 @@ export default function GenerateDetailModal({ isOpen, onClose, cloneScriptId, cl
       setActionLoading(true);
       try {
         await clonePhase(cloneScriptId, matchedTab.nextStep, false);
-      } catch (e) {
+      } catch (e: any) {
         console.error('推进步骤失败', e);
+        alert(e?.response?.data?.detail || '推进步骤失败，请稍后重试');
       } finally {
         setActionLoading(false);
         if (onRefresh) await onRefresh();
@@ -225,8 +226,9 @@ export default function GenerateDetailModal({ isOpen, onClose, cloneScriptId, cl
     setRetryLoading(true);
     try {
       await clonePhase(cloneScriptId, retryStep, false);
-    } catch (e) {
+    } catch (e: any) {
       console.error('重试失败', e);
+      alert(e?.response?.data?.detail || '重试失败，请稍后重试');
     } finally {
       setRetryLoading(false);
       if (onRefresh) await onRefresh();
@@ -248,8 +250,9 @@ export default function GenerateDetailModal({ isOpen, onClose, cloneScriptId, cl
         if (st.status === 'FAILED') { console.error('图片重新生成失败', st); break; }
       }
       await fetchDetail();
-    } catch (e) {
+    } catch (e: any) {
       console.error('重新生成图片失败', e);
+      alert(e?.response?.data?.detail || '重新生成图片失败，请稍后重试');
     } finally {
       setRegeneratingId(null);
     }

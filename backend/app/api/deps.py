@@ -79,6 +79,36 @@ async def get_current_user(request: Request, session: AsyncSessionDep, token: To
 CurrentUser = Annotated[User, Depends(get_current_user)]
 
 
+async def get_current_active_user(current_user: CurrentUser) -> User:
+    """要求账号已激活（is_active=True）。未激活账号不能触发生成类操作。
+
+    is_active 列可空，None 一律按未激活处理（安全默认）。
+    """
+    if not current_user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="账号未激活，请联系管理员激活",
+        )
+    return current_user
+
+
+async def get_current_superuser(current_user: CurrentUser) -> User:
+    """要求管理员权限（is_superuser=True）。
+
+    不强制 is_active，避免未激活的超管被锁死、无法进入管理页激活自己。
+    """
+    if not current_user.is_superuser:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="需要管理员权限",
+        )
+    return current_user
+
+
+CurrentActiveUser = Annotated[User, Depends(get_current_active_user)]
+CurrentSuperUser = Annotated[User, Depends(get_current_superuser)]
+
+
 def get_token_from_request(request: Request) -> str | None:
     authorization = request.headers.get("Authorization")
     if authorization:

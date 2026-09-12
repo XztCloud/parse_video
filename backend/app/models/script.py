@@ -76,7 +76,7 @@ class CloneScript(Base):
     __tablename__ = "clone_scripts"
     id = Column(Integer, primary_key=True, index=True)
     script_id = Column(Integer, ForeignKey("scripts.id", ondelete="CASCADE"), nullable=True)  # 改为nullable，支持小说来源
-    novel_id = Column(Integer, ForeignKey("novels.id", ondelete="SET NULL"), nullable=True, comment="FK to novels table for NOVEL source_type")
+    novel_id = Column(Integer, ForeignKey("novels.id", ondelete="CASCADE"), nullable=True, comment="FK to novels table for NOVEL source_type")
     source_type = Column(String(16), nullable=False, default='CLONE', server_default='CLONE', comment="工作台来源：CLONE=复刻剧本 / ORIGINAL=原片直转渲染 / NOVEL=小说转剧本")
     clone_theme = Column(String(255), comment="复刻视频主题")
     clone_requirements = Column(JSON, nullable=True, comment="复刻视频的要求")

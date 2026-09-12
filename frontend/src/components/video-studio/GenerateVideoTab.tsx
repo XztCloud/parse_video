@@ -1,29 +1,51 @@
 "use client";
 
 import { useState, useRef, useCallback, useEffect } from "react";
-import { clonePlot, clonePhase, getCloneStatus } from "@/lib/api";
+import { clonePlot, clonePhase, getCloneStatus, getCloneCapabilities } from "@/lib/api";
 import { GenerateHistoryItem, ScriptItem } from "./data";
 import GenerateDetailModal from "./GenerateDetailModal";
 
 interface GenerateVideoTabProps {
   history: GenerateHistoryItem[];
   onRefresh?: () => Promise<void>;
-  parsedScripts?: ScriptItem[];
   clonedScripts?: ScriptItem[];
   novelScripts?: ScriptItem[];
+  /** 从详情弹窗跳转时预选的剧本（复制/小说来源），需用户再点“开始生成视频” */
+  preselect?: { sourceType: 'copy' | 'novel'; scriptId: number } | null;
+  /** 当前账号是否已激活：未激活点「开始生成视频」时弹框提示（后端亦有兜底拦截） */
+  isActive?: boolean;
 }
 
-export default function GenerateVideoTab({ history, onRefresh, parsedScripts, clonedScripts, novelScripts }: GenerateVideoTabProps) {
+export default function GenerateVideoTab({ history, onRefresh, clonedScripts, novelScripts, preselect, isActive = true }: GenerateVideoTabProps) {
   const [showProgress, setShowProgress] = useState(false);
   const [detailModalOpen, setDetailModalOpen] = useState(false);
   const [detailCloneId, setDetailCloneId] = useState<number | null>(null);
   const [detailCloneStatus, setDetailCloneStatus] = useState('');
-  const [genSource, setGenSource] = useState<'parse' | 'copy' | 'novel'>('parse');
+  const [genSource, setGenSource] = useState<'copy' | 'novel'>('copy');
   const [selectedScript, setSelectedScript] = useState<number>(1);
-  const [aspectRatio, setAspectRatio] = useState('9:16（竖屏）');
+  const [aspectRatio, setAspectRatio] = useState('16:9');
   const [style, setStyle] = useState('真实摄影');
-  const [method, setMethod] = useState('本地 comfy 生成');
+  const [method, setMethod] = useState<'cloud' | 'local'>('cloud');
   const [flowControl, setFlowControl] = useState('人工控制');
+  // docker 部署无本地 comfy，仅允许云端；默认保守禁用，能力接口返回后再放开
+  const [allowLocalComfy, setAllowLocalComfy] = useState(false);
+
+  // 拉取生成能力：docker 部署下仅允许「云端 API 生成」
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const caps = await getCloneCapabilities();
+        if (cancelled) return;
+        setAllowLocalComfy(caps.allow_local_comfy);
+        if (!caps.allow_local_comfy) setMethod('cloud');
+      } catch {
+        // 拉取失败保守处理：只允许云端
+        if (!cancelled) setAllowLocalComfy(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   // 取消标志：点击关闭/取消时置 true，用于中断 startGenerate 流程
   const cancelledRef = useRef(false);
@@ -36,11 +58,27 @@ export default function GenerateVideoTab({ history, onRefresh, parsedScripts, cl
   const manualContinueResolveRef = useRef<(() => void) | null>(null);
   const manualCancelRef = useRef<(() => void) | null>(null);
 
-  const scripts: ScriptItem[] = genSource === 'parse'
-    ? (parsedScripts && parsedScripts.length > 0 ? parsedScripts : [])
-    : genSource === 'copy'
-      ? (clonedScripts && clonedScripts.length > 0 ? clonedScripts : [])
-      : (novelScripts && novelScripts.length > 0 ? novelScripts : []);
+  const scripts: ScriptItem[] = genSource === 'copy'
+    ? (clonedScripts && clonedScripts.length > 0 ? clonedScripts : [])
+    : (novelScripts && novelScripts.length > 0 ? novelScripts : []);
+
+  // 来源/列表变化后，若当前选中项不在列表内，自动选中第一个，避免默认 id 落空。
+  // 声明在预选 effect 之前，保证跳转预选（后执行）能覆盖这里的兜底选中。
+  useEffect(() => {
+    if (scripts.length > 0 && !scripts.some(s => s.id === selectedScript)) {
+      setSelectedScript(scripts[0].id);
+    }
+  }, [scripts, selectedScript]);
+
+  // 从详情弹窗跳转时预选剧本：仅应用一次，之后用户可自由切换
+  const appliedPreselectRef = useRef<typeof preselect>(null);
+  useEffect(() => {
+    if (preselect && preselect !== appliedPreselectRef.current) {
+      appliedPreselectRef.current = preselect;
+      setGenSource(preselect.sourceType);
+      setSelectedScript(preselect.scriptId);
+    }
+  }, [preselect]);
 
   // Carousel state
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -73,8 +111,9 @@ export default function GenerateVideoTab({ history, onRefresh, parsedScripts, cl
     try {
       await clonePhase(cloneScriptId, step, false);
       if (onRefresh) await onRefresh();
-    } catch (e) {
+    } catch (e: any) {
       console.error('重试失败', e);
+      alert(e?.response?.data?.detail || '重试失败，请稍后重试');
     } finally {
       setRetryLoading(null);
     }
@@ -139,6 +178,12 @@ export default function GenerateVideoTab({ history, onRefresh, parsedScripts, cl
     const selected = scripts.find(s => s.id === selectedScript);
     if (!selected) { alert('请先选择一个剧本'); return; }
 
+    // 未激活账号：弹框明确提示（需用户点确认），不发起请求；后端另有 403 兜底
+    if (!isActive) {
+      alert('账号未激活：请联系管理员激活账号后，才能生成配音 / 图片 / 视频。');
+      return;
+    }
+
     const autoRun = flowControl === '自动';
     cancelledRef.current = false;
     setShowProgress(true);
@@ -156,7 +201,8 @@ export default function GenerateVideoTab({ history, onRefresh, parsedScripts, cl
         const plotRes = await clonePlot({
           videoId: selected.sourceId || selected.id,
           cloneTheme: selected.tag || '标准生成',
-          autoRun: false, style: null, product: null, productDesc: null,
+          autoRun: false, style, product: null, productDesc: null,
+          aspectRatio, generationMethod: method,
         });
         cloneScriptId = plotRes.id;
 
@@ -214,13 +260,15 @@ export default function GenerateVideoTab({ history, onRefresh, parsedScripts, cl
       }
     } catch (e: any) {
       console.error('生成视频失败:', e);
-      setCurrentStepText(`生成失败: ${e?.message || '未知错误'}`);
+      // 后端 409 会带上明确原因（如“任务正在进行中”），优先展示
+      const detail = e?.response?.data?.detail || e?.message || '未知错误';
+      setCurrentStepText(`生成失败: ${detail}`);
       setTotalPercent(0);
     } finally {
       if (onRefresh) await onRefresh();
       setTimeout(() => setShowProgress(false), 2000);
     }
-  }, [scripts, selectedScript, flowControl, onRefresh, pollCloneStatus]);
+  }, [scripts, selectedScript, flowControl, aspectRatio, style, method, isActive, onRefresh, pollCloneStatus]);
 
   return (
     <div>
@@ -243,15 +291,11 @@ export default function GenerateVideoTab({ history, onRefresh, parsedScripts, cl
         <div className="mb-6">
           <label className="block text-sm font-medium text-slate-700 mb-3">选择剧本来源</label>
           <div className="flex gap-2 mb-4">
-            <button onClick={() => { setGenSource('parse'); setSelectedScript(1); setGenCurrentPage(0); }}
-              className={`px-5 py-2.5 rounded-xl text-sm font-medium transition-all ${genSource === 'parse' ? 'bg-gradient-to-r from-indigo-500 to-purple-500 text-white shadow-md' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>
-              解析的剧本
-            </button>
-            <button onClick={() => { setGenSource('copy'); setSelectedScript(1); setGenCurrentPage(0); }}
+            <button onClick={() => { setGenSource('copy'); setGenCurrentPage(0); }}
               className={`px-5 py-2.5 rounded-xl text-sm font-medium transition-all ${genSource === 'copy' ? 'bg-gradient-to-r from-purple-500 to-pink-500 text-white shadow-md' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>
               复制的剧本
             </button>
-            <button onClick={() => { setGenSource('novel'); setSelectedScript(1); setGenCurrentPage(0); }}
+            <button onClick={() => { setGenSource('novel'); setGenCurrentPage(0); }}
               className={`px-5 py-2.5 rounded-xl text-sm font-medium transition-all ${genSource === 'novel' ? 'bg-gradient-to-r from-indigo-500 to-blue-500 text-white shadow-md' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>
               来自小说的剧本
             </button>
@@ -301,25 +345,25 @@ export default function GenerateVideoTab({ history, onRefresh, parsedScripts, cl
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-2">视频比例</label>
             <select value={aspectRatio} onChange={(e) => setAspectRatio(e.target.value)} className="w-full px-4 py-3 bg-slate-50/80 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-pink-500 focus:border-transparent focus:bg-white transition-all text-sm">
-              <option>9:16（竖屏）</option><option>16:9（横屏）</option><option>1:1（方形）</option><option>4:3（标准）</option>
+              <option value="16:9">16:9（横屏）</option><option value="9:16">9:16（竖屏）</option><option value="1:1">1:1（方形）</option>
             </select>
           </div>
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-2">画面风格</label>
             <select value={style} onChange={(e) => setStyle(e.target.value)} className="w-full px-4 py-3 bg-slate-50/80 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-pink-500 focus:border-transparent focus:bg-white transition-all text-sm">
-              <option>真实摄影</option><option>动漫风格</option><option>赛博朋克</option><option>水墨国风</option><option>3D 卡通</option>
+              <option value="真实摄影">真实摄影</option>
             </select>
           </div>
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-2">生成方式</label>
-            <select value={method} onChange={(e) => setMethod(e.target.value)} className="w-full px-4 py-3 bg-slate-50/80 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-pink-500 focus:border-transparent focus:bg-white transition-all text-sm">
-              <option>本地 comfy 生成</option><option>云端 API 生成</option>
+            <select value={method} onChange={(e) => setMethod(e.target.value as 'cloud' | 'local')} className="w-full px-4 py-3 bg-slate-50/80 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-pink-500 focus:border-transparent focus:bg-white transition-all text-sm">
+              <option value="cloud">云端 API 生成</option><option value="local" disabled={!allowLocalComfy}>本地 comfy 生成</option>
             </select>
           </div>
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-2">流程控制</label>
             <select value={flowControl} onChange={(e) => setFlowControl(e.target.value)} className="w-full px-4 py-3 bg-slate-50/80 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-pink-500 focus:border-transparent focus:bg-white transition-all text-sm">
-              <option>人工控制</option><option>自动</option>
+              <option value="人工控制">人工控制</option><option value="自动" disabled>自动</option>
             </select>
           </div>
         </div>

@@ -12,6 +12,7 @@ import {
   type NovelStatusResponse,
   type NovelScriptItem,
 } from "@/lib/api";
+import { exportClonePlotMarkdown, exportStoryboardJson } from "@/lib/exportUtils";
 import DetailModal from "./DetailModal";
 
 /* ==================== Types ==================== */
@@ -81,7 +82,7 @@ const GRADIENT_LIST = [
 ];
 
 /* ==================== Component ==================== */
-export default function NovelScriptTab() {
+export default function NovelScriptTab({ onGenerateVideo }: { onGenerateVideo?: (scriptId: number) => void }) {
   const [content, setContent] = useState("");
   const [inputMode, setInputMode] = useState<"paste" | "upload">("paste");
   const [fileName, setFileName] = useState("");
@@ -113,6 +114,10 @@ export default function NovelScriptTab() {
   const [modalParsePointer, setModalParsePointer] = useState<any>(null);
   const [modalScriptContent, setModalScriptContent] = useState<any>(null);
   const [modalParseScript, setModalParseScript] = useState<any>(null);
+  // 是否允许「用此剧本生成视频」（仅已完成剧本）
+  const [modalCanGenerate, setModalCanGenerate] = useState(false);
+  // 是否允许导出（剧本内容 md / 分镜脚本 json）
+  const [modalCanExport, setModalCanExport] = useState(false);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -173,6 +178,8 @@ export default function NovelScriptTab() {
     setModalCategory(null);
     setModalDuration(null);
     setModalVideoId(ch.id);
+    setModalCanGenerate(ch.clone_status === "SEGMENTS_DONE");
+    setModalCanExport(ch.clone_status === "SEGMENTS_DONE");
     setModalCreatedAt(null);
     setModalParsePointer(null);
     setModalScriptContent(null);
@@ -190,6 +197,22 @@ export default function NovelScriptTab() {
       // 静默失败，保持空数据
     }
   }, []);
+
+  /* ---- 导出：剧本内容 markdown / 分镜脚本 json ---- */
+  const handleExport = useCallback(async (kind: 'script' | 'storyboard') => {
+    const id = modalVideoId;
+    if (!id) return;
+    try {
+      if (kind === 'script') {
+        await exportClonePlotMarkdown(id, `clone_${id}.md`);
+      } else {
+        exportStoryboardJson(modalSegments, `storyboard_${id}.json`);
+      }
+    } catch (e) {
+      console.error('导出失败', e);
+      alert('导出失败，请稍后重试');
+    }
+  }, [modalVideoId, modalSegments]);
 
   /* ---- 轮询状态 ---- */
   const pollStatus = useCallback((novelId: number) => {
@@ -787,6 +810,14 @@ export default function NovelScriptTab() {
         parsePointer={modalParsePointer}
         scriptContent={modalScriptContent}
         parseScript={modalParseScript}
+        canGenerate={modalCanGenerate}
+        canExport={modalCanExport}
+        onExport={handleExport}
+        onGenerate={() => {
+          const scriptId = modalVideoId;
+          setModalOpen(false);
+          if (scriptId) onGenerateVideo?.(scriptId);
+        }}
       />
     </>
   );

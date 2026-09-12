@@ -6,7 +6,10 @@ import { CopyHistoryItem } from "./data";
 
 interface CopyScriptTabProps {
   history: CopyHistoryItem[];
-  onHistoryChange: (history: CopyHistoryItem[]) => void;
+  /** 支持直接传新数组，或传 React 风格的更新函数 */
+  onHistoryChange: (
+    next: CopyHistoryItem[] | ((prev: CopyHistoryItem[]) => CopyHistoryItem[])
+  ) => void;
   onViewDetail: (item: CopyHistoryItem) => void;
   sourceVideos?: { id: number; filename: string; duration?: number | null; category?: string | null }[];
 }

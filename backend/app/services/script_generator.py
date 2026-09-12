@@ -401,40 +401,23 @@ class ScriptGenerator:
         return result
 
 
+    # 单批分镜数与单次输出上限。
+    # 注意：doubao-seed 等为推理模型，思维链 token 也计入 completion；
+    # 一次把全部分镜塞给模型时，分镜多/描述长会把 max_tokens 吃满 → finish_reason=length，
+    # 表现为分段数不足甚至正文为空（原实现即因此“总是失败”）。分批后单次输出可控。
+    ENHANCE_BATCH_SIZE = 8
+    ENHANCE_MAX_TOKENS = 8192
+
     @staticmethod
-    async def enhance_shot_descriptions(script_result: list[dict]) -> list[dict]:
-        """结合画面描述和对话，为每个分镜生成更完整、更生动的 shot_description。
-
-        输出格式参考 llm.py 中 StoryBoard 的 prompt_for_video：
-        具体场景、动作、景别的导演描述，可直接用于 AI 生图/生视频。
-        """
-        if not script_result:
-            return script_result
-
-        model_name = settings.LLM_NAME
-        base_url = settings.LLM_BASE_URL
-        api_key = settings.LLM_API_KEY
-
-        llm_kwargs = {
-            "model": model_name,
-            "temperature": 0.3,
-            "max_tokens": 4096,
-        }
-        if api_key:
-            llm_kwargs["api_key"] = api_key
-        if base_url:
-            llm_kwargs["base_url"] = base_url
-
-        llm = ChatOpenAI(**llm_kwargs)
-
-        # 构造分镜摘要给 LLM
+    async def _enhance_batch(llm, batch: list[dict], batch_no: int) -> bool:
+        """增强一批分镜描述，成功返回 True（就地写回 batch）。"""
         segment_summary = []
-        for i, seg in enumerate(script_result):
+        for seg in batch:
             dialogue_texts = []
             for d in seg.get('dialogue', []):
                 dialogue_texts.append(f"角色{d.get('speaker', '未知')}: {d.get('text', '')}")
             segment_summary.append({
-                "index": i,
+                "index": seg.get('index'),
                 "shot_description": seg.get('shot_description', ''),
                 "dialogue": dialogue_texts,
                 "segment_type": seg.get('segment_type', 'mixed'),
@@ -462,26 +445,67 @@ class ScriptGenerator:
 
         for attempt in range(RETRY_MAX):
             try:
-                messages = [SystemMessage(content=prompt)]
-                response = llm.invoke(messages)
-                content = response.content.strip()
+                response = await llm.ainvoke([SystemMessage(content=prompt)])
+                content = response.content
+                if not isinstance(content, str):
+                    content = str(content)
 
                 # 按 "---" 分割各分镜描述
-                enhanced_parts = [p.strip() for p in content.split('---') if p.strip()]
+                enhanced_parts = [p.strip() for p in content.strip().split('---') if p.strip()]
 
-                if len(enhanced_parts) >= len(script_result):
-                    for i, desc in enumerate(enhanced_parts[:len(script_result)]):
-                        script_result[i]['shot_description'] = desc
-                    logger.info(f'enhance_shot_descriptions: 成功增强 {len(enhanced_parts)} 个分镜描述')
-                    return script_result
-                else:
-                    logger.warning(f'enhance_shot_descriptions: 返回 {len(enhanced_parts)} 段，期望 {len(script_result)} 段，重试')
-                    continue
+                if len(enhanced_parts) >= len(batch):
+                    for i, desc in enumerate(enhanced_parts[:len(batch)]):
+                        batch[i]['shot_description'] = desc
+                    logger.info(f'enhance_shot_descriptions: 第 {batch_no} 批增强成功（{len(batch)} 个分镜）')
+                    return True
+
+                finish_reason = (response.response_metadata or {}).get('finish_reason')
+                logger.warning(
+                    f'enhance_shot_descriptions: 第 {batch_no} 批返回 {len(enhanced_parts)} 段，'
+                    f'期望 {len(batch)} 段（finish_reason={finish_reason}），重试'
+                )
             except Exception as e:
-                logger.error(f'enhance_shot_descriptions attempt {attempt + 1} failed: {e}')
-                continue
+                logger.error(f'enhance_shot_descriptions 第 {batch_no} 批 attempt {attempt + 1} failed: {e}')
+        return False
 
-        logger.error('enhance_shot_descriptions: 所有重试失败，保持原始描述')
+    @staticmethod
+    async def enhance_shot_descriptions(script_result: list[dict]) -> list[dict]:
+        """结合画面描述和对话，为每个分镜生成更完整、更生动的 shot_description。
+
+        输出格式参考 llm.py 中 StoryBoard 的 prompt_for_video：
+        具体场景、动作、景别的导演描述，可直接用于 AI 生图/生视频。
+
+        分批评分镜调用 LLM（每批 ENHANCE_BATCH_SIZE 个）：既让单次输出不超过 max_tokens，
+        也让某一批失败只影响该批（保留其原始描述），不再整体丢弃。
+        """
+        if not script_result:
+            return script_result
+
+        llm_kwargs = {
+            "model": settings.LLM_NAME,
+            "temperature": 0.3,
+            "max_tokens": ScriptGenerator.ENHANCE_MAX_TOKENS,
+        }
+        if settings.LLM_API_KEY:
+            llm_kwargs["api_key"] = settings.LLM_API_KEY
+        if settings.LLM_BASE_URL:
+            llm_kwargs["base_url"] = settings.LLM_BASE_URL
+        llm = ChatOpenAI(**llm_kwargs)
+
+        batch_size = ScriptGenerator.ENHANCE_BATCH_SIZE
+        enhanced_count = 0
+        for batch_no, start in enumerate(range(0, len(script_result), batch_size), start=1):
+            batch = script_result[start:start + batch_size]
+            # 带上全局下标，便于模型保持与原始分镜的对应关系
+            tagged = [{**seg, "index": start + i} for i, seg in enumerate(batch)]
+            if await ScriptGenerator._enhance_batch(llm, tagged, batch_no):
+                for i, seg in enumerate(tagged):
+                    batch[i]['shot_description'] = seg['shot_description']
+                enhanced_count += len(batch)
+            else:
+                logger.error(f'enhance_shot_descriptions: 第 {batch_no} 批失败，保留原始描述')
+
+        logger.info(f'enhance_shot_descriptions: 完成 {enhanced_count}/{len(script_result)} 个分镜描述增强')
         return script_result
 
 

@@ -94,10 +94,15 @@ def parse_video_task(self, video_id: int):
 
         script_result = process_loop.run(ScriptGenerator.generate_script(asr_segments, visual_segments))
         logger.info(f'script_result: {script_result}')
+        # 分段写入进度，避免长耗时 LLM 阶段进度条长时间不动
+        video.progress = 85
+        db.commit()
 
         # 增强分镜描述：结合画面描述和对话生成更完整的 shot_description
         script_result = process_loop.run(ScriptGenerator.enhance_shot_descriptions(script_result))
         logger.info(f'enhanced script_result: {script_result}')
+        video.progress = 90
+        db.commit()
 
         parse_result = process_loop.run(ScriptGenerator.summary_script(script_result=script_result, output_dir=settings.UPLOAD_DIR + f'/{video.id}'))
         logger.info(f'parse_result: {parse_result}')
@@ -119,6 +124,8 @@ def parse_video_task(self, video_id: int):
         except Exception:
             logger.exception('generate_shot_features failed, fallback to keyword extract')
             shot_feats = []
+        video.progress = 97
+        db.commit()
 
         for idx, seg in enumerate(script_result):
             logger.info(f'seg: {seg}, seg type: {type(seg)}')
@@ -141,6 +148,8 @@ def parse_video_task(self, video_id: int):
             type_result = {"category": "未知分类", "summary": ""}
         video.category = type_result.get("category") or "未知分类"
         video.type_summary = type_result.get("summary") or ""
+        video.progress = 99
+        db.commit()
         video.status = VideoStatus.DONE
         video.progress = 100
         db.commit()

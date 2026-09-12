@@ -7,8 +7,10 @@ import ParseVideoTab from "./ParseVideoTab";
 import NovelScriptTab from "./NovelScriptTab";
 import CopyScriptTab from "./CopyScriptTab";
 import GenerateVideoTab from "./GenerateVideoTab";
+import AdminUsersTab from "./AdminUsersTab";
 import DetailModal from "./DetailModal";
-import { listVideos, getScript, getCloneScript, listAllCloneScripts, listNovels, getNovelScripts, ScriptSegment, VideoListItem, CloneAllItem } from "@/lib/api";
+import { listVideos, getScript, getCloneScript, listAllCloneScripts, listNovels, getNovelScripts, getMe, type UserInfo, ScriptSegment, VideoListItem, CloneAllItem } from "@/lib/api";
+import { exportClonePlotMarkdown, exportParsedScriptMarkdown, exportStoryboardJson } from "@/lib/exportUtils";
 import {
   ParseHistoryItem,
   CopyHistoryItem,
@@ -51,6 +53,8 @@ function mapVideoToParseItem(v: VideoListItem): ParseHistoryItem {
 
 export default function VideoStudio() {
   const [activeTab, setActiveTab] = useState("parse");
+  // 当前登录账号（决定是否显示「管理员」入口、以及能否生成）
+  const [me, setMe] = useState<UserInfo | null>(null);
   const [parseHistoryData, setParseHistoryData] = useState<ParseHistoryItem[]>([]);
   const [copyHistoryData, setCopyHistoryData] = useState<CopyHistoryItem[]>([]);
   const [generateHistoryData, setGenerateHistoryData] = useState<GenerateHistoryItem[]>([]);
@@ -71,11 +75,16 @@ export default function VideoStudio() {
   const [modalParsePointer, setModalParsePointer] = useState<any>(null);
   const [modalScriptContent, setModalScriptContent] = useState<any>(null);
   const [modalParseScript, setModalParseScript] = useState<any>(null);
+  // 是否允许「用此剧本生成视频」（仅已完成剧本）
+  const [modalCanGenerate, setModalCanGenerate] = useState(false);
+  // 是否允许导出（剧本内容 md / 分镜脚本 json）
+  const [modalCanExport, setModalCanExport] = useState(false);
 
   // 生成视频页面的剧本数据
-  const [genParsedScripts, setGenParsedScripts] = useState<ScriptItem[]>([]);
   const [genClonedScripts, setGenClonedScripts] = useState<ScriptItem[]>([]);
   const [genNovelScripts, setGenNovelScripts] = useState<ScriptItem[]>([]);
+  // 从详情弹窗「用此剧本生成视频」跳转时预选的剧本
+  const [generatePreselect, setGeneratePreselect] = useState<{ sourceType: 'copy' | 'novel'; scriptId: number } | null>(null);
 
   // 拉取真实视频列表
   const fetchVideos = useCallback(async () => {
@@ -85,26 +94,6 @@ export default function VideoStudio() {
       videos.forEach((v) => { meta[v.id] = v; });
       setVideosMeta(meta);
       setParseHistoryData(videos.map(mapVideoToParseItem));
-
-      // 构建解析剧本列表（DONE 状态的视频）
-      const doneVideos = videos.filter(v => v.status === 'done');
-      const parsed: ScriptItem[] = doneVideos.map(v => {
-        const tag = v.category || '未分类';
-        const dur = v.duration ?? 0;
-        const m = Math.floor(dur / 60);
-        const s = Math.floor(dur % 60);
-        return {
-          id: v.id,
-          title: v.filename,
-          shots: 0,
-          tag,
-          color: tagColorFor(tag),
-          info: `时长 ${m}:${String(s).padStart(2, '0')}`,
-          sourceId: v.id,
-          sourceType: 'parse' as const,
-        };
-      });
-      setGenParsedScripts(parsed);
     } catch {
       // API 失败时保持空列表
     }
@@ -215,9 +204,25 @@ export default function VideoStudio() {
     fetchNovelScripts();
   }, [fetchVideos, fetchCloneAndGenHistory, fetchNovelScripts]);
 
+  // 拉取当前账号信息：用于管理员入口显示与未激活提示
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const info = await getMe();
+        if (!cancelled) setMe(info);
+      } catch {
+        // 静默失败：拿不到就按“未限制”处理，仍由后端兜底校验
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
   const handleViewParseDetail = async (item: ParseHistoryItem) => {
     const meta = videosMeta[item.id];
     setModalType("parse");
+    setModalCanGenerate(false);
+    setModalCanExport(item.status === "done");
     setModalTitle(item.title);
     setModalSubtitle(meta?.type_summary || "视频解析结果预览");
     setModalCategory(meta?.category ?? null);
@@ -250,6 +255,9 @@ export default function VideoStudio() {
 
   const handleViewCopyDetail = async (item: any) => {
     setModalType("copy");
+    // 仅已完成（SEGMENTS_DONE）的复制剧本可生成视频
+    setModalCanGenerate(item.cloneStatus === 'SEGMENTS_DONE');
+    setModalCanExport(item.cloneStatus === 'SEGMENTS_DONE');
     setModalTitle(item.displayTitle || item.title || "复制剧本详情");
     setModalSubtitle(item.theme ? `主题: ${item.theme}` : "AI 创意改写结果");
     setModalSegments([]);
@@ -277,6 +285,34 @@ export default function VideoStudio() {
     }
   };
 
+  /** 详情弹窗「用此剧本生成视频」：切到生成视频页并预选该剧本（需用户再点“开始生成视频”） */
+  const handleGenerateFromDetail = useCallback(() => {
+    if ((modalType === 'copy' || modalType === 'novel') && modalVideoId) {
+      setGeneratePreselect({ sourceType: modalType, scriptId: modalVideoId });
+    }
+    setModalOpen(false);
+    setActiveTab('generate');
+  }, [modalType, modalVideoId]);
+
+  /** 导出当前剧本：剧本内容 markdown / 分镜脚本 json */
+  const handleExport = useCallback(async (kind: 'script' | 'storyboard') => {
+    if (!modalVideoId) return;
+    try {
+      if (kind === 'script') {
+        if (modalType === 'copy') {
+          await exportClonePlotMarkdown(modalVideoId, `clone_${modalVideoId}.md`);
+        } else {
+          await exportParsedScriptMarkdown(modalVideoId, `script_${modalVideoId}.md`);
+        }
+      } else {
+        exportStoryboardJson(modalSegments, `storyboard_${modalVideoId}.json`);
+      }
+    } catch (e) {
+      console.error('导出失败', e);
+      alert('导出失败，请稍后重试');
+    }
+  }, [modalType, modalVideoId, modalSegments]);
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-indigo-50/30 to-purple-50/40">
       {/* 背景装饰 */}
@@ -288,7 +324,7 @@ export default function VideoStudio() {
 
       <div className="flex min-h-screen">
         {/* 侧边栏 */}
-        <Sidebar activeTab={activeTab} onTabChange={setActiveTab} />
+        <Sidebar activeTab={activeTab} onTabChange={setActiveTab} isSuperuser={!!me?.is_superuser} />
 
         {/* 主内容区 */}
         <main className="flex-1 overflow-x-hidden">
@@ -304,7 +340,12 @@ export default function VideoStudio() {
               />
             )}
             {activeTab === "novel" && (
-              <NovelScriptTab />
+              <NovelScriptTab
+                onGenerateVideo={(scriptId) => {
+                  setGeneratePreselect({ sourceType: 'novel', scriptId });
+                  setActiveTab('generate');
+                }}
+              />
             )}
             {activeTab === "copy" && (
               <CopyScriptTab
@@ -320,11 +361,13 @@ export default function VideoStudio() {
               <GenerateVideoTab
                 history={generateHistoryData}
                 onRefresh={async () => { await fetchCloneAndGenHistory(); await fetchNovelScripts(); }}
-                parsedScripts={genParsedScripts}
+                preselect={generatePreselect}
                 clonedScripts={genClonedScripts}
                 novelScripts={genNovelScripts}
+                isActive={me ? !!me.is_active : true}
               />
             )}
+            {activeTab === "admin" && !!me?.is_superuser && <AdminUsersTab />}
           </div>
         </main>
       </div>
@@ -345,6 +388,10 @@ export default function VideoStudio() {
         parsePointer={modalParsePointer}
         scriptContent={modalScriptContent}
         parseScript={modalParseScript}
+        onGenerate={handleGenerateFromDetail}
+        canGenerate={modalCanGenerate}
+        canExport={modalCanExport}
+        onExport={handleExport}
       />
     </div>
   );
