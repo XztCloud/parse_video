@@ -208,6 +208,8 @@ docker compose up -d --build
 启动完成后访问 **http://localhost**，用 `.env` 中配置的 `SUPER_ADMINI_EMAIL` / `SUPER_ADMINI_PASSWORD` 登录。
 
 > Docker 部署下 `RUN_ENV=PRODUCTION`，后端会关闭 `/docs`、`/redoc` 与 `/openapi.json`，接口文档仅在开发环境可见。
+>
+> 要挂域名、通过 HTTPS 对外提供服务（前置 nginx 反向代理），见 [反向代理 + HTTPS 部署](docs/deploy-nginx-https.md)。
 
 ### 方式二：本地开发
 
@@ -437,6 +439,7 @@ pytest -m worker                         # 只跑 worker 相关测试
 
 ## 相关文档
 
+- [反向代理 + HTTPS 部署](docs/deploy-nginx-https.md) —— nginx + Let's Encrypt 的完整步骤与踩坑记录
 - [H3 提示词优化说明](docs/h3_prompt_optimize.md) —— 音驱分镜视频的提示词构造与节点映射
 - [小说转剧本接口测试指南](docs/novel_api_test_guide.md)
 - [小说转剧本测试结果](docs/novel_to_script_test_results.md)
