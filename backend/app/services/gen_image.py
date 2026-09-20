@@ -140,8 +140,8 @@ class RunningHubAPI:
             # 不写死 Content-Type：json= 会自动带 application/json，files= 会自动带 multipart boundary
         }
         self._client: Optional[httpx.AsyncClient] = None
-    
-    
+        self._download_client: Optional[httpx.AsyncClient] = None
+
     async def _get_client(self) -> httpx.AsyncClient:
         """惰性创建并复用 AsyncClient"""
         if self._client is None or self._client.is_closed:
@@ -150,6 +150,19 @@ class RunningHubAPI:
                 timeout=httpx.Timeout(self.timeout),
             )
         return self._client
+
+    async def _get_download_client(self) -> httpx.AsyncClient:
+        """下载结果专用的 client：不带 RunningHub 的 Authorization 头。
+
+        结果 URL 指向对象存储（TOS，S3 兼容），不是 RunningHub 的 API。把
+        Bearer 头一起发过去会被 TOS 当作格式非法的签名信息，直接返回
+        400 Bad Request——实测同一个 URL 带上该头是 400、不带是 200。
+        """
+        if self._download_client is None or self._download_client.is_closed:
+            self._download_client = httpx.AsyncClient(
+                timeout=httpx.Timeout(self.timeout),
+            )
+        return self._download_client
     
     async def submit_task(
         self,
@@ -231,8 +244,11 @@ class RunningHubAPI:
         raise TimeoutError(f"[{task_id}] 任务超时（超过 {max_wait_seconds}秒）")
     
     async def download_result(self, result_url: str, output_path: str) -> str:
-        """异步流式下载生成的结果"""
-        client = await self._get_client()
+        """异步流式下载生成的结果
+
+        用不带鉴权头的 client，见 _get_download_client 的说明。
+        """
+        client = await self._get_download_client()
         async with client.stream("GET", result_url) as response:
             response.raise_for_status()
             with open(output_path, "wb") as f:
